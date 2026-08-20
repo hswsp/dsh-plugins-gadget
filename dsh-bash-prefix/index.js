@@ -81,13 +81,20 @@ export default class BashPrefixGateway extends TypertRemoteService {
     return { ...DEFAULTS, ...this.readState() };
   }
 
-  /** Persist toggle + preamble, then return the new state. */
+  /**
+   * Persist a partial update, then return the new state.
+   *
+   * Fields the payload leaves `undefined` keep their current value, so the
+   * browser can flip the toggle with `set({ enabled })` (which must NOT wipe
+   * the preamble) and save the text with `set({ preamble })` independently.
+   */
   set(payload) {
+    const cur = this.readState();
     const next = {
       ...DEFAULTS,
-      ...this.readState(),
-      enabled: !!(payload && payload.enabled),
-      preamble: payload && typeof payload.preamble === "string" ? payload.preamble : "",
+      ...cur,
+      enabled: payload && typeof payload.enabled === "boolean" ? payload.enabled : cur.enabled,
+      preamble: payload && typeof payload.preamble === "string" ? payload.preamble : cur.preamble,
     };
     try {
       if (this.scope) {

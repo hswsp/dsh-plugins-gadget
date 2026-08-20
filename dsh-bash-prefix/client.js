@@ -126,6 +126,7 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = React.useState(false);
       const [status, setStatus] = React.useState(null); // "saved" | {error}
       const [loaded, setLoaded] = React.useState(false);
+      const statusTimer = React.useRef(null);
 
       React.useEffect(() => {
         get()
@@ -137,16 +138,37 @@ window.__ModuleLoader__.load({
           .catch((e) => setStatus({ error: String((e && e.message) || e) }));
       }, []);
 
-      const onSave = () => {
+      // One-shot feedback: show "saved"/error, then auto-clear after a moment.
+      const showStatus = (msg) => {
+        if (statusTimer.current) clearTimeout(statusTimer.current);
+        setStatus(msg);
+        statusTimer.current = setTimeout(() => setStatus(null), 2500);
+      };
+      React.useEffect(() => () => { if (statusTimer.current) clearTimeout(statusTimer.current); }, []);
+
+      // Toggle acts immediately — no Save needed. It persists only `enabled`
+      // and leaves the preamble untouched.
+      const onToggle = (checked) => {
+        setEnabled(checked);
         setBusy(true);
-        setStatus(null);
-        set({ enabled, preamble })
+        set({ enabled: checked })
           .then((s) => {
             setEnabled(!!(s && s.enabled));
-            setPreamble((s && s.preamble) || "");
-            setStatus("saved");
+            showStatus("saved");
           })
-          .catch((e) => setStatus({ error: String((e && e.message) || e) }))
+          .catch((e) => showStatus({ error: String((e && e.message) || e) }))
+          .finally(() => setBusy(false));
+      };
+
+      // Save only persists the preamble text (toggle is already live).
+      const onSave = () => {
+        setBusy(true);
+        set({ preamble })
+          .then((s) => {
+            setPreamble((s && s.preamble) || "");
+            showStatus("saved");
+          })
+          .catch((e) => showStatus({ error: String((e && e.message) || e) }))
           .finally(() => setBusy(false));
       };
 
@@ -160,7 +182,7 @@ window.__ModuleLoader__.load({
               type: "checkbox",
               checked: enabled,
               disabled: busy || !loaded,
-              onChange: (e) => setEnabled(e.target.checked),
+              onChange: (e) => onToggle(e.target.checked),
               style: { width: 18, height: 18, accentColor: "#d0bfff" },
             }),
             React.createElement("div", { style: styles.rowText },
