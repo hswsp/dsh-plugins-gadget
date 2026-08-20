@@ -117,7 +117,6 @@ window.__ModuleLoader__.load({
       },
       saved: { fontSize: 13, color: "var(--dsw-alias-state-success-primary, #2e7d32)", margin: 0 },
       error: { fontSize: 13, color: "var(--dsw-alias-state-error-primary, #c62828)", margin: 0 },
-      readonly: { opacity: 0.55, pointerEvents: "none" },
     };
 
     function BashPrefixPanel({ get, set, t }) {
@@ -170,7 +169,7 @@ window.__ModuleLoader__.load({
           ),
           React.createElement("label", { style: styles.preambleLabel }, t("preambleLabel")),
           React.createElement("textarea", {
-            style: { ...styles.textarea, ...(enabled ? {} : styles.readonly) },
+            style: styles.textarea,
             value: preamble,
             disabled: busy || !loaded,
             placeholder: t("preamblePlaceholder"),

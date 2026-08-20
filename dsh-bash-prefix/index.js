@@ -8,7 +8,8 @@
 // Two jobs:
 //  1. Expose "bashPrefix" get()/set() so the browser Settings UI can read/write
 //     the persisted toggle + preamble living in the `settings.bash-prefix`
-//     namespace.
+//     namespace. The namespace is REGISTERED at load time (DSH requires it
+//     before any read/write), and we use the returned owner scope.
 //  2. Wrap ctx.shell.resolve() so that, when the toggle is on, the preamble is
 //     prepended to EVERY DSH bash command (foreground and background).
 
@@ -18,47 +19,84 @@ import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 
 export const Config = z.object({});
 
+const NS = settingsNamespace("bash-prefix");
 const DEFAULTS = { kind: "bash-prefix", enabled: false, preamble: "" };
 
-function readState(ctx) {
-  let doc;
-  try {
-    doc = ctx.settings.get(settingsNamespace("bash-prefix"));
-  } catch {
-    doc = undefined;
-  }
-  return {
-    enabled: !!(doc && doc.enabled),
-    preamble: doc && typeof doc.preamble === "string" ? doc.preamble : "",
-  };
-}
+// Schemastery schema for the `settings.bash-prefix` document, so DSH can
+// validate, persist and re-resolve it across reloads.
+const StateSchema = z.object({
+  enabled: z.boolean().default(false),
+  preamble: z.string().default(""),
+});
 
 export default class BashPrefixGateway extends TypertRemoteService {
   static inject = ["shell", "settings"];
 
   constructor(ctx) {
     super(ctx, "bashPrefix");
+    // Register the namespace up front (idempotent if already registered) and
+    // keep the owner scope. Reads/writes go through the scope.
+    this.scope = BashPrefixGateway.ensureRegistered(ctx);
+    this.settings = ctx.settings;
     this.installShellWrap(ctx);
+  }
+
+  /** Register the `bash-prefix` namespace and return its owner scope. */
+  static ensureRegistered(ctx) {
+    const settings = ctx.settings;
+    if (typeof settings?.register !== "function") return undefined;
+    try {
+      // register() throws on duplicate; tolerate an existing registration.
+      return settings.register(NS, StateSchema);
+    } catch {
+      // Already registered by another instance — fall back to direct reads.
+      return undefined;
+    }
+  }
+
+  /** Resolve the current toggle + preamble. */
+  readState() {
+    let doc;
+    if (this.scope) {
+      try {
+        doc = this.scope.get();
+      } catch {
+        doc = undefined;
+      }
+    } else {
+      try {
+        doc = this.settings?.get(NS);
+      } catch {
+        doc = undefined;
+      }
+    }
+    return {
+      enabled: !!(doc && doc.enabled),
+      preamble: doc && typeof doc.preamble === "string" ? doc.preamble : "",
+    };
   }
 
   /** Return the current toggle + preamble. */
   get() {
-    return { ...DEFAULTS, ...readState(this.ctx) };
+    return { ...DEFAULTS, ...this.readState() };
   }
 
   /** Persist toggle + preamble, then return the new state. */
   set(payload) {
     const next = {
       ...DEFAULTS,
-      ...readState(this.ctx),
+      ...this.readState(),
       enabled: !!(payload && payload.enabled),
       preamble: payload && typeof payload.preamble === "string" ? payload.preamble : "",
     };
     try {
-      this.ctx.settings.update(settingsNamespace("bash-prefix"), {
-        enabled: next.enabled,
-        preamble: next.preamble,
-      });
+      if (this.scope) {
+        this.scope.update({ enabled: next.enabled, preamble: next.preamble });
+      } else if (this.settings) {
+        this.settings.update(NS, { enabled: next.enabled, preamble: next.preamble });
+      } else {
+        throw new Error("settings service unavailable");
+      }
     } catch (e) {
       next.error = String((e && e.message) || e);
     }
@@ -76,15 +114,11 @@ export default class BashPrefixGateway extends TypertRemoteService {
     if (!shell || typeof shell.resolve !== "function") return;
 
     const originalResolve = shell.resolve.bind(shell);
+    const self = this;
     shell.resolve = (request) => {
       const spec = originalResolve(request);
       if (!spec || typeof spec.command !== "string") return spec;
-      let state;
-      try {
-        state = readState(ctx);
-      } catch {
-        state = { enabled: false, preamble: "" };
-      }
+      const state = self.readState();
       const preamble = (state.preamble || "").trim();
       if (!state.enabled || preamble.length === 0) return spec;
       // Newline-separated so an `export` in the preamble applies to the command.
