@@ -1,0 +1,53 @@
+{
+  "name": "dsh-bash-prefix",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness plugin: every bash call runs your own preamble commands first (e.g. export https_proxy/http_proxy/all_proxy to enable a VPN proxy). Toggle on/off and edit the preamble in Settings → Bash 预处理.",
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "plugin",
+    "bash",
+    "proxy",
+    "vpn",
+    "preamble",
+    "prefix",
+    "env"
+  ],
+  "type": "module",
+  "main": "./index.js",
+  "files": [
+    "index.js",
+    "client.js",
+    "typert.host.js",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./typert": "./typert.host.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6"
+  }
+}

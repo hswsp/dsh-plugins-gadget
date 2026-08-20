@@ -16,6 +16,7 @@ directory is a complete, independently publishable DSH plugin package (with its 
 | Directory            | Plugin name   | Description                                                   |
 | -------------------- | ------------- | ------------------------------------------------------------- |
 | [`dsh-opencode-sync/`](dsh-opencode-sync/) | `dsh-model-sync` | One-click sync of the OpenCode Go and OpenCode Zen model lists into Settings → Models |
+| [`dsh-bash-prefix/`](dsh-bash-prefix/) | `dsh-bash-prefix` | Run your own preamble commands before every bash call (toggle + textbox), e.g. one-click VPN proxy |
 
 > More plugins coming soon.
 

@@ -15,6 +15,7 @@
 | 目录                 | 插件名            | 说明                                             |
 | -------------------- | ----------------- | ------------------------------------------------ |
 | [`dsh-opencode-sync/`](dsh-opencode-sync/) | `dsh-model-sync` | 一键同步 OpenCode Go 与 OpenCode Zen 模型列表到「设置 → 模型」 |
+| [`dsh-bash-prefix/`](dsh-bash-prefix/) | `dsh-bash-prefix` | 每次 bash 前自动执行你自定义的前置命令（开关 + 文本框），用于一键开启 VPN 代理 |
 
 > 更多插件持续添加中。
 
