@@ -6,13 +6,13 @@ import { z } from "zod";
 
 const stateSchema = z.object({
   kind: z.literal("bash-prefix"),
-  enabled: z.boolean(),
+  editable: z.boolean(),
   preamble: z.string(),
   error: z.string().optional().nullable(),
 });
 
 const payloadSchema = z.object({
-  enabled: z.boolean().optional(),
+  editable: z.boolean().optional(),
   preamble: z.string().optional(),
 });
 

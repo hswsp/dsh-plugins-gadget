@@ -1,6 +1,7 @@
 // Client half of dsh-bash-prefix: a Settings panel ("设置 → Bash 预处理")
-// with a master toggle and a free-form preamble textarea. On each DSH bash
-// call the Host prepends this preamble when the toggle is on (see index.js).
+// with an "Editable" lock and a free-form preamble textarea. The Host prepends
+// the preamble to every DSH bash command whenever the preamble is non-empty
+// (see index.js).
 //
 // Persistence goes through the "bashPrefix" Typert Remote (get/set), the same
 // proven pattern as dsh-model-sync — the panel never pokes settings internals.
@@ -19,11 +20,11 @@ window.__ModuleLoader__.load({
 
     const zh = {
       nav: "Bash 预处理",
-      title: "Bash 预处理（VPN / 代理开关）",
-      hint: "开启后，每次 DSH 执行 bash 命令都会先自动运行你下面输入的这些命令，再运行本次命令本身。常用于在每次 bash 前设置代理环境变量。",
-      enabledLabel: "启用 bash 预处理",
-      enabledOn: "每次 bash 前都会先执行下面的命令",
-      enabledOff: "已关闭：bash 命令不会注入任何前缀",
+      title: "Bash 预处理（VPN / 代理）",
+      hint: "只要下面的文本框非空，每次 DSH 执行 bash 命令都会先自动运行这里的内容，再运行本次命令本身。常用于每次 bash 前设置代理环境变量。",
+      editableLabel: "Editable（允许编辑文本）",
+      editableOn: "可编辑：下面的文本框可以修改",
+      editableOff: "锁定：下面的文本框只读，先点开 Editable 才能改",
       preambleLabel: "每次 bash 前先执行的命令",
       preamblePlaceholder: "# 例：\nexport https_proxy=http://127.0.0.1:7897\nexport http_proxy=http://127.0.0.1:7897\nexport all_proxy=socks5://127.0.0.1:7897",
       save: "保存",
@@ -32,11 +33,11 @@ window.__ModuleLoader__.load({
     };
     const en = {
       nav: "Bash Preamble",
-      title: "Bash preamble (VPN / proxy toggle)",
-      hint: "When enabled, every DSH bash command first runs the commands you enter below, then the command itself. Commonly used to export proxy env vars (https_proxy / http_proxy / all_proxy) before each bash.",
-      enabledLabel: "Enable bash preamble",
-      enabledOn: "The commands below run before every bash call",
-      enabledOff: "Disabled: bash runs without any preamble",
+      title: "Bash preamble (VPN / proxy)",
+      hint: "As long as the textarea below is non-empty, every DSH bash command first runs its contents, then the command itself. Commonly used to export proxy env vars (https_proxy / http_proxy / all_proxy) before each bash.",
+      editableLabel: "Editable (allow editing the text)",
+      editableOn: "Editable: the textarea below can be edited",
+      editableOff: "Locked: the textarea is read-only; tick Editable to edit",
       preambleLabel: "Commands to run before every bash call",
       preamblePlaceholder: "# e.g.\nexport https_proxy=http://127.0.0.1:7897\nexport http_proxy=http://127.0.0.1:7897\nexport all_proxy=socks5://127.0.0.1:7897",
       save: "Save",
@@ -121,7 +122,7 @@ window.__ModuleLoader__.load({
     };
 
     function BashPrefixPanel({ get, set, t }) {
-      const [enabled, setEnabled] = React.useState(false);
+      const [editable, setEditable] = React.useState(false);
       const [preamble, setPreamble] = React.useState("");
       const [busy, setBusy] = React.useState(false);
       const [status, setStatus] = React.useState(null); // "saved" | {error}
@@ -131,7 +132,7 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         get()
           .then((s) => {
-            setEnabled(!!(s && s.enabled));
+            setEditable(!!(s && s.editable));
             setPreamble((s && s.preamble) || "");
             setLoaded(true);
           })
@@ -146,26 +147,28 @@ window.__ModuleLoader__.load({
       };
       React.useEffect(() => () => { if (statusTimer.current) clearTimeout(statusTimer.current); }, []);
 
-      // Toggle acts immediately — no Save needed. It persists only `enabled`
-      // and leaves the preamble untouched.
-      const onToggle = (checked) => {
-        setEnabled(checked);
+      // The editable lock is a UI-only concern: toggling it persists only
+      // `editable`, never touching the preamble text.
+      const onEditable = (checked) => {
+        setEditable(checked);
         setBusy(true);
-        set({ enabled: checked })
+        set({ editable: checked })
           .then((s) => {
-            setEnabled(!!(s && s.enabled));
+            setEditable(!!(s && s.editable));
             showStatus("saved");
           })
           .catch((e) => showStatus({ error: String((e && e.message) || e) }))
           .finally(() => setBusy(false));
       };
 
-      // Save only persists the preamble text (toggle is already live).
+      // Save persists ONLY the preamble text, exactly as typed. It never
+      // auto-clears the text — the only way it becomes empty is the user
+      // deleting it themselves.
       const onSave = () => {
         setBusy(true);
         set({ preamble })
           .then((s) => {
-            setPreamble((s && s.preamble) || "");
+            setPreamble((s && typeof s.preamble === "string" ? s.preamble : preamble));
             showStatus("saved");
           })
           .catch((e) => showStatus({ error: String((e && e.message) || e) }))
@@ -180,22 +183,22 @@ window.__ModuleLoader__.load({
           React.createElement("div", { style: styles.row },
             React.createElement("input", {
               type: "checkbox",
-              checked: enabled,
+              checked: editable,
               disabled: busy || !loaded,
-              onChange: (e) => onToggle(e.target.checked),
+              onChange: (e) => onEditable(e.target.checked),
               style: { width: 18, height: 18, accentColor: "#d0bfff" },
             }),
             React.createElement("div", { style: styles.rowText },
-              React.createElement("span", { style: styles.label }, t("enabledLabel")),
-              React.createElement("p", { style: styles.sub }, enabled ? t("enabledOn") : t("enabledOff"))
+              React.createElement("span", { style: styles.label }, t("editableLabel")),
+              React.createElement("p", { style: styles.sub }, editable ? t("editableOn") : t("editableOff"))
             )
           ),
           React.createElement("label", { style: styles.preambleLabel }, t("preambleLabel")),
           React.createElement("textarea", {
-            style: { ...styles.textarea, ...(enabled ? styles.readonly : {}) },
+            style: { ...styles.textarea, ...(!editable ? styles.readonly : {}) },
             value: preamble,
             disabled: busy || !loaded,
-            readOnly: enabled,
+            readOnly: !editable,
             placeholder: t("preamblePlaceholder"),
             onChange: (e) => setPreamble(e.target.value),
             spellCheck: false,
