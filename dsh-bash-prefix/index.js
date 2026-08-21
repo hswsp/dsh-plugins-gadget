@@ -7,11 +7,11 @@
 //
 // Two jobs:
 //  1. Expose "bashPrefix" get()/set() so the browser Settings UI can read/write
-//     the persisted `settings.bash-prefix` document (the `enabled` toggle and
-//     the `preamble` text). The namespace is REGISTERED at load time (DSH
-//     requires it before any read/write), and we use the returned owner scope.
-//  2. Wrap ctx.shell.resolve() so that, when the toggle is on and the preamble
-//     is non-empty, the preamble is prepended to EVERY DSH bash command
+//     the persisted `settings.bash-prefix` document: a master `enabled` toggle
+//     plus a `rules` list of preamble commands (one command per line). The
+//     namespace is REGISTERED at load time and reads/writes use the owner scope.
+//  2. Wrap ctx.shell.resolve() so that, when enabled and the rules are
+//     non-empty, the joined rules are prepended to EVERY DSH bash command
 //     (foreground and background).
 
 import z from "@deepseek-ai/schemastery";
@@ -21,13 +21,12 @@ import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 export const Config = z.object({});
 
 const NS = settingsNamespace("bash-prefix");
-const DEFAULTS = { kind: "bash-prefix", enabled: false, preamble: "" };
+const DEFAULTS = { kind: "bash-prefix", enabled: false, rules: [] };
 
-// Schemastery schema for the `settings.bash-prefix` document, so DSH can
-// validate, persist and re-resolve it across reloads.
+// Schemastery schema for the `settings.bash-prefix` document.
 const StateSchema = z.object({
   enabled: z.boolean().default(false),
-  preamble: z.string().default(""),
+  rules: z.array(z.string()).default([]),
 });
 
 export default class BashPrefixGateway extends TypertRemoteService {
@@ -35,8 +34,6 @@ export default class BashPrefixGateway extends TypertRemoteService {
 
   constructor(ctx) {
     super(ctx, "bashPrefix");
-    // Register the namespace up front (idempotent if already registered) and
-    // keep the owner scope. Reads/writes go through the scope.
     this.scope = BashPrefixGateway.ensureRegistered(ctx);
     this.settings = ctx.settings;
     this.installShellWrap(ctx);
@@ -47,37 +44,28 @@ export default class BashPrefixGateway extends TypertRemoteService {
     const settings = ctx.settings;
     if (typeof settings?.register !== "function") return undefined;
     try {
-      // register() throws on duplicate; tolerate an existing registration.
       return settings.register(NS, StateSchema);
     } catch {
-      // Already registered by another instance — fall back to direct reads.
       return undefined;
     }
   }
 
-  /** Resolve the current toggle + preamble. */
+  /** Resolve the current toggle + rules from the live settings service. */
   readState() {
     let doc;
-    if (this.scope) {
-      try {
-        doc = this.scope.get();
-      } catch {
-        doc = undefined;
-      }
-    } else {
-      try {
-        doc = this.settings?.get(NS);
-      } catch {
-        doc = undefined;
-      }
+    try {
+      doc = this.settings?.get(NS);
+    } catch {
+      doc = undefined;
     }
+    const rules = doc && Array.isArray(doc.rules) ? doc.rules.filter((r) => typeof r === "string") : [];
     return {
       enabled: !!(doc && doc.enabled),
-      preamble: doc && typeof doc.preamble === "string" ? doc.preamble : "",
+      rules,
     };
   }
 
-  /** Return the current toggle + preamble. */
+  /** Return the current toggle + rules. */
   get() {
     return { ...DEFAULTS, ...this.readState() };
   }
@@ -85,40 +73,41 @@ export default class BashPrefixGateway extends TypertRemoteService {
   /**
    * Persist a partial update, then return the new state.
    *
-   * Fields the payload leaves `undefined` keep their current value. This is
-   * what guarantees the preamble is never wiped: flipping the toggle sends
-   * `set({ enabled })` (preamble untouched), and saving sends
-   * `set({ preamble })` (preamble set to exactly what was typed — never
-   * auto-cleared). The only way the preamble becomes empty is the user
-   * actually deleting the text.
+   * Fields the payload leaves `undefined` keep their current value. Flipping
+   * the toggle sends `set({ enabled })` (rules untouched); adding/removing a
+   * rule sends `set({ rules })` (a list replace, one line per command). Both
+   * are independent and never wipe the other.
    */
-  set(payload) {
+  async set(payload) {
     const cur = this.readState();
     const next = {
       ...DEFAULTS,
       ...cur,
       enabled: payload && typeof payload.enabled === "boolean" ? payload.enabled : cur.enabled,
-      preamble: payload && typeof payload.preamble === "string" ? payload.preamble : cur.preamble,
+      rules: payload && Array.isArray(payload.rules) ? payload.rules.filter((r) => typeof r === "string") : cur.rules,
     };
     try {
       if (this.scope) {
-        this.scope.update({ enabled: next.enabled, preamble: next.preamble });
+        await this.scope.update({ enabled: next.enabled, rules: next.rules });
       } else if (this.settings) {
-        this.settings.update(NS, { enabled: next.enabled, preamble: next.preamble });
+        await this.settings.update(NS, { enabled: next.enabled, rules: next.rules });
       } else {
         throw new Error("settings service unavailable");
       }
+      // Re-read the persisted state so the returned value reflects storage
+      // (schema defaults/validation applied), never a stale in-memory copy.
+      return { ...DEFAULTS, ...this.readState() };
     } catch (e) {
       next.error = String((e && e.message) || e);
+      return next;
     }
-    return next;
   }
 
   /**
-   * Wrap ctx.shell.resolve() so every bash command gets the preamble prepended
-   * when the toggle is on AND the preamble is non-empty. resolve() returns the
-   * fully-resolved spec whose .command is handed to `bash -c`, so this single
-   * seam covers both foreground (run) and background (start) calls.
+   * Wrap ctx.shell.resolve() so every bash command gets the joined rules
+   * prepended when the toggle is on AND the rules are non-empty. resolve()
+   * returns the fully-resolved spec whose .command is handed to `bash -c`,
+   * covering both foreground (run) and background (start) calls.
    */
   installShellWrap(ctx) {
     const shell = ctx.shell;
@@ -130,9 +119,10 @@ export default class BashPrefixGateway extends TypertRemoteService {
       const spec = originalResolve(request);
       if (!spec || typeof spec.command !== "string") return spec;
       const state = self.readState();
-      const preamble = (state.preamble || "").trim();
+      const rules = state.rules || [];
+      const preamble = rules.filter((r) => r.trim() !== "").join("\n");
       if (!state.enabled || preamble.length === 0) return spec;
-      // Newline-separated so an `export` in the preamble applies to the command.
+      // Newline-separated so an `export` in a rule applies to the command.
       spec.command = `${preamble}\n${spec.command}`;
       return spec;
     };
