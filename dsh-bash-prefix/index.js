@@ -7,11 +7,12 @@
 //
 // Two jobs:
 //  1. Expose "bashPrefix" get()/set() so the browser Settings UI can read/write
-//     the persisted `settings.bash-prefix` document (the `editable` edit lock
-//     and the `preamble` text). The namespace is REGISTERED at load time (DSH
+//     the persisted `settings.bash-prefix` document (the `enabled` toggle and
+//     the `preamble` text). The namespace is REGISTERED at load time (DSH
 //     requires it before any read/write), and we use the returned owner scope.
-//  2. Wrap ctx.shell.resolve() so that, when the preamble is non-empty, it is
-//     prepended to EVERY DSH bash command (foreground and background).
+//  2. Wrap ctx.shell.resolve() so that, when the toggle is on and the preamble
+//     is non-empty, the preamble is prepended to EVERY DSH bash command
+//     (foreground and background).
 
 import z from "@deepseek-ai/schemastery";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
@@ -20,12 +21,12 @@ import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 export const Config = z.object({});
 
 const NS = settingsNamespace("bash-prefix");
-const DEFAULTS = { kind: "bash-prefix", editable: false, preamble: "" };
+const DEFAULTS = { kind: "bash-prefix", enabled: false, preamble: "" };
 
 // Schemastery schema for the `settings.bash-prefix` document, so DSH can
 // validate, persist and re-resolve it across reloads.
 const StateSchema = z.object({
-  editable: z.boolean().default(false),
+  enabled: z.boolean().default(false),
   preamble: z.string().default(""),
 });
 
@@ -54,7 +55,7 @@ export default class BashPrefixGateway extends TypertRemoteService {
     }
   }
 
-  /** Resolve the current editable lock + preamble. */
+  /** Resolve the current toggle + preamble. */
   readState() {
     let doc;
     if (this.scope) {
@@ -71,12 +72,12 @@ export default class BashPrefixGateway extends TypertRemoteService {
       }
     }
     return {
-      editable: !!(doc && doc.editable),
+      enabled: !!(doc && doc.enabled),
       preamble: doc && typeof doc.preamble === "string" ? doc.preamble : "",
     };
   }
 
-  /** Return the current editable lock + preamble. */
+  /** Return the current toggle + preamble. */
   get() {
     return { ...DEFAULTS, ...this.readState() };
   }
@@ -85,8 +86,8 @@ export default class BashPrefixGateway extends TypertRemoteService {
    * Persist a partial update, then return the new state.
    *
    * Fields the payload leaves `undefined` keep their current value. This is
-   * what guarantees the preamble is never wiped: toggling the editable lock
-   * sends `set({ editable })` (preamble untouched), and saving sends
+   * what guarantees the preamble is never wiped: flipping the toggle sends
+   * `set({ enabled })` (preamble untouched), and saving sends
    * `set({ preamble })` (preamble set to exactly what was typed — never
    * auto-cleared). The only way the preamble becomes empty is the user
    * actually deleting the text.
@@ -96,14 +97,14 @@ export default class BashPrefixGateway extends TypertRemoteService {
     const next = {
       ...DEFAULTS,
       ...cur,
-      editable: payload && typeof payload.editable === "boolean" ? payload.editable : cur.editable,
+      enabled: payload && typeof payload.enabled === "boolean" ? payload.enabled : cur.enabled,
       preamble: payload && typeof payload.preamble === "string" ? payload.preamble : cur.preamble,
     };
     try {
       if (this.scope) {
-        this.scope.update({ editable: next.editable, preamble: next.preamble });
+        this.scope.update({ enabled: next.enabled, preamble: next.preamble });
       } else if (this.settings) {
-        this.settings.update(NS, { editable: next.editable, preamble: next.preamble });
+        this.settings.update(NS, { enabled: next.enabled, preamble: next.preamble });
       } else {
         throw new Error("settings service unavailable");
       }
@@ -115,12 +116,9 @@ export default class BashPrefixGateway extends TypertRemoteService {
 
   /**
    * Wrap ctx.shell.resolve() so every bash command gets the preamble prepended
-   * whenever the preamble is non-empty. resolve() returns the fully-resolved
-   * spec whose .command is handed to `bash -c`, so this single seam covers
-   * both foreground (run) and background (start) calls.
-   *
-   * Injecting depends ONLY on the preamble being non-empty — the editable lock
-   * is purely a UI concern and never gates injection.
+   * when the toggle is on AND the preamble is non-empty. resolve() returns the
+   * fully-resolved spec whose .command is handed to `bash -c`, so this single
+   * seam covers both foreground (run) and background (start) calls.
    */
   installShellWrap(ctx) {
     const shell = ctx.shell;
@@ -133,7 +131,7 @@ export default class BashPrefixGateway extends TypertRemoteService {
       if (!spec || typeof spec.command !== "string") return spec;
       const state = self.readState();
       const preamble = (state.preamble || "").trim();
-      if (preamble.length === 0) return spec;
+      if (!state.enabled || preamble.length === 0) return spec;
       // Newline-separated so an `export` in the preamble applies to the command.
       spec.command = `${preamble}\n${spec.command}`;
       return spec;
