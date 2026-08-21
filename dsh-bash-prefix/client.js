@@ -133,10 +133,10 @@ window.__ModuleLoader__.load({
         get()
           .then((s) => {
             setEditable(!!(s && s.editable));
-            setPreamble((s && s.preamble) || "");
-            setLoaded(true);
+            setPreamble((s && typeof s.preamble === "string" ? s.preamble : ""));
           })
-          .catch((e) => setStatus({ error: String((e && e.message) || e) }));
+          .catch((e) => setStatus({ error: String((e && e.message) || e) }))
+          .finally(() => setLoaded(true));
       }, []);
 
       // One-shot feedback: show "saved"/error, then auto-clear after a moment.
