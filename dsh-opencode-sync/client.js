@@ -25,6 +25,9 @@ window.__ModuleLoader__.load({
       sync: "同步",
       idle: "点击「同步」拉取该提供商的最新模型。",
       unchanged: "无变化（已是最新）",
+      catalogTotal: "已按官方 Endpoints 重建目录：{n} 个模型，写入 {paths} 个文件",
+      catalogFailed: "{n} 个文件写入失败",
+      catalogRestart: "重启 DSH 后 per-model 协议分发生效（luna/grok→responses、glm/kimi→completions、minimax/qwen→anthropic）",
       total: "共 {n} 个模型",
       added: "新增 {n}",
       removed: "移除 {n}",
@@ -53,6 +56,9 @@ window.__ModuleLoader__.load({
       sync: "Sync",
       idle: "Click Sync to pull this provider's latest models.",
       unchanged: "No changes (already up to date)",
+      catalogTotal: "Catalog rebuilt from the official endpoints: {n} models, written to {paths} file(s)",
+      catalogFailed: "{n} file write(s) failed",
+      catalogRestart: "Restart DSH for per-model protocol dispatch (luna/grok→responses, glm/kimi→completions, minimax/qwen→anthropic)",
       total: "{n} models",
       added: "{n} added",
       removed: "{n} removed",
@@ -76,7 +82,7 @@ window.__ModuleLoader__.load({
     // zod schema before it crosses the wire.
     const TYPERT_REMOTE = {
       package: "dsh-model-sync",
-      descriptors: ["sync", "syncGo", "syncZen"].map((method) => ({
+      descriptors: ["sync", "syncGo", "syncGoCatalog", "syncZen"].map((method) => ({
         id: "dsh-model-sync#modelSync/" + method,
         service: "modelSync",
         namespace: "modelSync",
@@ -116,6 +122,12 @@ window.__ModuleLoader__.load({
       const lines = [];
       if (busy) {
         lines.push(React.createElement("p", { key: "loading", style: styles.cardMeta }, t("loading")));
+      } else if (result && result.status === "catalog") {
+        // syncGoCatalog() result: catalog file rebuilt from official data.
+        lines.push(React.createElement("p", { key: "total", style: styles.cardMeta }, t("catalogTotal").replace("{n}", String(result.total)).replace("{paths}", String(result.written))));
+        if (result.detail) lines.push(React.createElement("p", { key: "proto", style: styles.list }, result.detail));
+        if (result.failed && result.failed.length > 0) lines.push(React.createElement("p", { key: "failed", style: styles.error }, t("catalogFailed").replace("{n}", String(result.failed.length))));
+        lines.push(React.createElement("p", { key: "restart", style: styles.success }, t("catalogRestart")));
       } else if (result && result.status === "ok") {
         lines.push(React.createElement("p", { key: "total", style: styles.cardMeta }, t("total").replace("{n}", String(result.total))));
         const added = result.added || [];
@@ -163,6 +175,29 @@ window.__ModuleLoader__.load({
         } else {
           setFatal(null);
         }
+        // syncGoCatalog resolves to { ok, total, byProtocol, written, failed }
+        // without the {go, zen} envelope: shape it into the same slot the Go
+        // card renders (status total / byProtocol / written). Refresh (sync())
+        // carries the same shape under value.goCatalog.
+        const catalogValue = value && value.byProtocol !== undefined && value.written !== undefined
+          ? value
+          : value && value.goCatalog && value.goCatalog.byProtocol !== undefined ? value.goCatalog : null;
+        if (catalogValue) {
+          const byProto = Object.entries(catalogValue.byProtocol || {})
+            .map(([p, n]) => `${p}=${n}`).join(", ");
+          setResults((prev) => ({
+            ...prev,
+            go: {
+              status: "catalog",
+              total: catalogValue.total,
+              detail: byProto,
+              written: Array.isArray(catalogValue.written) ? catalogValue.written.length : 0,
+              failed: Array.isArray(catalogValue.failed) ? catalogValue.failed : [],
+            },
+            zen: value && value.zen ? value.zen : prev.zen,
+          }));
+          return;
+        }
         setResults((prev) => ({
           go: value && value.go ? value.go : prev.go,
           zen: value && value.zen ? value.zen : prev.zen,
@@ -202,6 +237,7 @@ window.__ModuleLoader__.load({
               typeof fatal.error === "string"
                 ? fatal.error === "write-failed" ? t("writeFailed").replace("{msg}", fatal.warning || "")
                   : fatal.error === "remote-failed" ? t("remoteFailed").replace("{msg}", fatal.warning || "")
+                  : fatal.error === "fetch-failed" ? t("network")
                   : t("notConfigured")
                 : String((fatal.error && fatal.error.message) || JSON.stringify(fatal.error))
             )
@@ -224,7 +260,10 @@ window.__ModuleLoader__.load({
         return api;
       };
       const query = async () => (await withApi()).sync();
-      const syncGo = async () => (await withApi()).syncGo();
+      // opencode-go sync rebuilds the pi-ai catalog file from the official
+      // per-protocol endpoint data (see index.js syncGoCatalog): this is the
+      // action that makes every go model usable, so the Go card triggers it.
+      const syncGo = async () => (await withApi()).syncGoCatalog();
       const syncZen = async () => (await withApi()).syncZen();
       const injected = () => ({ query, syncGo, syncZen, t });
 
