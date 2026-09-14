@@ -16,11 +16,10 @@
 
 import z from "@deepseek-ai/schemastery";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
-import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 
 export const Config = z.object({});
 
-const NS = settingsNamespace("bash-prefix");
+const NS = "bash-prefix";
 const DEFAULTS = { kind: "bash-prefix", enabled: false, rules: [] };
 
 // Schemastery schema for the `settings.bash-prefix` document.

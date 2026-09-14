@@ -56,6 +56,13 @@ DSH 的 bash 工具通过 `ctx.shell.resolve()` 解析每条命令，并把返�
 
 当开关处于 **Disable**（或规则列表为空）时，bash 原样执行，不注入任何内容。
 
+## 版本兼容
+
+需要 DSH ≥ `0.1.5-rc.1`。`@deepseek-ai/dsh-settings@0.1.5` 起移除了
+`settingsNamespace()` 辅助函数，命名空间直接使用普通字符串。本插件以普通字符串注册、
+读写 `"bash-prefix"` 命名空间；旧版 `dsh-settings`（`^0.1.0-rc.6`）同样接受普通字符串，
+因此新旧版本均可使用。
+
 ## 安装
 
 ```bash

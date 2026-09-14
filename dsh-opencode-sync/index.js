@@ -27,7 +27,6 @@
 import z from "@deepseek-ai/schemastery";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
-import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 import { OPENCODE_GO_MODELS } from "@earendil-works/pi-ai/providers/opencode-go.models";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -310,7 +309,7 @@ export class ModelSyncGateway extends TypertRemoteService {
   /** Read the current llm-pi-ai section (undefined when the namespace is unavailable). */
   readPi() {
     try {
-      return this.ctx.settings.get(settingsNamespace("llm-pi-ai"));
+      return this.ctx.settings.get("llm-pi-ai");
     } catch {
       return undefined;
     }
@@ -369,7 +368,7 @@ export class ModelSyncGateway extends TypertRemoteService {
     let warning = null;
     if (Object.keys(patch).length > 0) {
       try {
-        await this.ctx.settings.update(settingsNamespace("llm-pi-ai"), { providers: patch });
+        await this.ctx.settings.update("llm-pi-ai", { providers: patch });
       } catch (e) {
         return {
           ok: false,

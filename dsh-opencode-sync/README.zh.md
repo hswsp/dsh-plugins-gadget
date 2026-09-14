@@ -71,6 +71,13 @@
 没有可用 Key 时 zen 会**跳过**并给出提示。不带 Key 时该接口会返回全部模型，直接同步
 会误把未启用的模型写进来，所以没有 Key 就不同步 zen。
 
+## 版本兼容
+
+需要 DSH ≥ `0.1.5-rc.1`。`@deepseek-ai/dsh-settings@0.1.5` 起移除了
+`settingsNamespace()` 辅助函数，命名空间直接使用普通字符串。本插件把 `"llm-pi-ai"`
+直接传给 `ctx.settings.get/update`；旧版 `dsh-settings`（`^0.1.0-rc.6`）同样接受
+普通字符串，因此新旧版本均可使用。
+
 ## 安装
 
 ```bash

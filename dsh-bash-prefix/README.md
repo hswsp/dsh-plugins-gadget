@@ -66,6 +66,13 @@ escalation and background semantics are preserved.
 
 When the toggle is **Disable** (or the rule list is empty), bash runs exactly as-is.
 
+## Compatibility
+
+Requires DSH ≥ `0.1.5-rc.1`. `@deepseek-ai/dsh-settings@0.1.5` removed the
+`settingsNamespace()` helper — settings namespaces are plain strings now. This plugin
+registers/reads the `"bash-prefix"` namespace with plain strings; older `dsh-settings`
+(`^0.1.0-rc.6`) accepted plain strings too, so the plugin works on both.
+
 ## Install
 
 ```bash

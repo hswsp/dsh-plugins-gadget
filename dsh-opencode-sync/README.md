@@ -85,6 +85,13 @@ paths.
 Without a usable key the zen sync is **skipped** with a hint. Without the key the endpoint
 returns *every* model, so syncing would silently wipe your enabled selection.
 
+## Compatibility
+
+Requires DSH ≥ `0.1.5-rc.1`. `@deepseek-ai/dsh-settings@0.1.5` removed the
+`settingsNamespace()` helper — settings namespaces are plain strings now. This plugin
+passes `"llm-pi-ai"` straight to `ctx.settings.get/update`; older `dsh-settings`
+(`^0.1.0-rc.6`) accepted plain strings too, so the plugin works on both.
+
 ## Installation
 
 ```bash
