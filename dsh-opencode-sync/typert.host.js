@@ -11,6 +11,19 @@ const providerResult = z.object({
   added: z.array(z.string()),
   removed: z.array(z.string()),
   fallback: z.array(z.string()),
+  // Live model ids the installed catalog cannot describe, so they were
+  // skipped from the settings write (reported so new models are visible).
+  extra: z.array(z.string()),
+  // Optional account-availability summary carried by fetchAccount() in the
+  // zen slot: { zen: n, go: n, zenError, goError }.
+  account: z
+    .object({
+      zen: z.number().nullable(),
+      go: z.number().nullable(),
+      zenError: z.string().nullable(),
+      goError: z.string().nullable(),
+    })
+    .optional(),
 });
 
 const resultSchema = z.object({
@@ -39,6 +52,13 @@ export const TYPERT = {
   package: "dsh-model-sync",
   face: "host",
   schemas: [],
-  invocations: [invocation("sync"), invocation("syncGo"), invocation("syncZen")],
+  invocations: [
+    invocation("sync"),
+    invocation("syncGo"),
+    invocation("syncZen"),
+    invocation("syncGoCatalog"),
+    invocation("setApiKey"),
+    invocation("fetchAccount"),
+  ],
   model: { services: [], events: [], objects: [] },
 };

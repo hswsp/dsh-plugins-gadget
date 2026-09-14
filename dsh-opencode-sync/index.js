@@ -28,12 +28,20 @@ import z from "@deepseek-ai/schemastery";
 import { TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
 import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { OPENCODE_GO_MODELS } from "@earendil-works/pi-ai/providers/opencode-go.models";
+import { OPENCODE_MODELS } from "@earendil-works/pi-ai/providers/opencode.models";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
+import { statSync } from "node:fs";
 
 const DEFAULT_GO_URL = "https://opencode.ai/zen/go/v1/models";
 const DEFAULT_ZEN_URL = "https://opencode.ai/zen/v1/models";
+// Current and legacy settings route keys for the OpenCode Zen provider. The
+// current DSH config names the route "opencode" (the pi-ai built-in provider
+// id, which is what makes reuseCatalogProvider dispatch per-model protocols);
+// older configs called it "zen". The sync accepts both so a config written
+// under either name keeps working.
+const ZEN_ROUTE_KEYS = ["opencode", "zen"];
 // Official model metadata (models.dev / provider data), the same source the
 // OpenCode docs page and pi-ai's own catalog are generated from.
 const DEFAULT_MODELS_API = "https://models.opencode.ai/api.json";
@@ -87,6 +95,7 @@ export const Config = z.object({
 
 /**
  * Resolve the OpenCode workspace API key, most-trusted first:
+ *   0. an explicitly supplied key (the Settings page's API key field)
  *   1. DSH credentials / env references OPENCODE_WORKSPACE_API_KEY,
  *      OPENCODE_GO_API_KEY, ZEN_API_KEY (all are workspace-scoped keys in
  *      practice; the endpoint only filters by a KeyTable row)
@@ -95,7 +104,8 @@ export const Config = z.object({
  * wipe the user's enabled selection, so the zen sync refuses to run without
  * one.
  */
-async function resolveApiKey(ctx) {
+async function resolveApiKey(ctx, explicitKey) {
+  if (typeof explicitKey === "string" && explicitKey.length > 0) return explicitKey;
   for (const name of ["OPENCODE_WORKSPACE_API_KEY", "OPENCODE_GO_API_KEY", "ZEN_API_KEY"]) {
     try {
       const cred = await ctx.credentials.resolve(credentialRef(name));
@@ -115,6 +125,23 @@ async function resolveApiKey(ctx) {
     /* fall through */
   }
   return undefined;
+}
+
+/**
+ * Fetch the live model list with a key and derive a small account summary:
+ * how many models are available on the two tiers. The /models endpoints are
+ * the public account surface OpenCode exposes; the summary is what the Sync
+ * page shows above the per-provider cards.
+ */
+async function fetchAccountSummary(zenUrl, goUrl, timeoutMs, apiKey) {
+  const zen = await fetchModels(zenUrl, timeoutMs, apiKey);
+  const go = await fetchModels(goUrl, timeoutMs, apiKey);
+  return {
+    zen: zen.ids ? zen.ids.length : null,
+    go: go.ids ? go.ids.length : null,
+    zenError: zen.error,
+    goError: go.error,
+  };
 }
 
 /** GET a models list endpoint; returns { error, ids } with ids null on failure. */
@@ -268,16 +295,39 @@ async function buildOfficialGoCatalog(timeoutMs) {
 }
 
 /**
- * Locate the pi-ai package directory (checked copies first, then the
- * checkout node_modules) where the opencode-go catalog JSON lives. The
- * runtime dsh process resolves the package from the checkout, while the
- * profile plugin resolves it from the pnpm store; both must carry the same
- * catalog, so the write targets every copy found.
- * @returns array of absolute paths to opencode-go.json (may be empty).
+ * Locate every real copy of the pi-ai opencode-go catalog JSON that dsh may
+ * load. The candidates mirror the layouts a DeepSeek Harness install uses:
+ *   1. the dsh runtime bundle's own node_modules — where the process that
+ *      boots the web app resolves @earendil-works/pi-ai from, and where the
+ *      profile's node_modules symlinks point to:
+ *      <prefix>/lib/node_modules/@deepseek-ai/dsh/node_modules/...;
+ *   2. the pnpm store / checkout node_modules layout (<prefix>/node_modules);
+ *   3. legacy home layout (~/DeepseekHarness/node_modules).
+ * Paths that do not exist on this machine are skipped, so a fresh or
+ * differently-laid-out install never reports phantom write failures.
+ * @returns array of absolute paths to existing opencode-go.json files.
  */
 function catalogFileCandidates() {
   const rel = join("node_modules", "@earendil-works", "pi-ai", "dist", "providers", "data", "opencode-go.json");
-  return [join(homedir(), ".dsh", "profiles", "web", rel), join(homedir(), "DeepseekHarness", rel)];
+  const prefix = join(process.env.DSH_HOME || join(homedir(), ".dsh"), "..");
+  const out = [
+    join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", rel),
+    join(prefix, "node_modules", rel),
+    join(homedir(), "DeepseekHarness", rel),
+  ];
+  // Deduplicate and keep only paths that actually exist.
+  const seen = new Set();
+  const existing = [];
+  for (const p of out) {
+    if (seen.has(p)) continue;
+    seen.add(p);
+    try {
+      if (statSync(p).isFile()) existing.push(p);
+    } catch {
+      /* path absent — skip */
+    }
+  }
+  return existing;
 }
 
 /** Write the rebuilt go catalog to every copy of the pi-ai data file. */
@@ -316,47 +366,63 @@ export class ModelSyncGateway extends TypertRemoteService {
   }
 
   /** Sync one route and return { result, patch } without writing anything. */
-  async collect(routeId, pi) {
+  async collect(routeId, pi, explicitKey) {
     const providers = pi && pi.providers && typeof pi.providers === "object" ? pi.providers : {};
-    const provider = providers[routeId];
-    const empty = { total: 0, added: [], removed: [], fallback: [] };
+    // The zen sync accepts both the current "opencode" route key and the
+    // legacy "zen" one; pick whichever exists in the config.
+    const isGo = routeId === "opencode-go";
+    const zenKey = isGo ? null : ZEN_ROUTE_KEYS.find((k) => providers[k] !== undefined);
+    const provider = isGo ? providers[routeId] : (zenKey ? providers[zenKey] : undefined);
+    // The settings key this entry writes to: the zen route may live under
+    // "opencode" (current) or "zen" (legacy) — whatever the config uses.
+    const routeKey = isGo ? routeId : (zenKey || routeId);
+    // Catalog availability check: which live ids the installed pi-ai catalog
+    // cannot describe (no per-model api), so they must be skipped from the
+    // settings write. Reported as `extra` so the user sees which live models
+    // are newer than the installed catalog instead of silently dropping them.
+    const isInCatalog = isGo
+      ? (id) => OPENCODE_GO_MODELS[id] !== undefined
+      : (id) => OPENCODE_MODELS[id] !== undefined;
+    const empty = { total: 0, added: [], removed: [], fallback: [], extra: [] };
     // Precondition: the route must already exist in Settings -> Models (its
     // apiKeyEnv lives on the provider, and creating a provider from scratch
     // would fail validation).
-    if (!provider) return { result: { status: "skipped", error: "not-configured", ...empty }, patch: null };
-    const isGo = routeId === "opencode-go";
-    const apiKey = isGo ? undefined : await resolveApiKey(this.ctx);
-    if (!isGo && !apiKey) return { result: { status: "error", error: "no-api-key", ...empty }, patch: null };
+    if (!provider) {
+      return { routeKey, result: { status: "skipped", error: "not-configured", ...empty }, patch: null };
+    }
+    const apiKey = isGo ? undefined : await resolveApiKey(this.ctx, explicitKey);
+    if (!isGo && !apiKey) {
+      return { routeKey, result: { status: "error", error: "no-api-key", ...empty }, patch: null };
+    }
     const catalog = await loadCatalog(this.config.cachePath || DEFAULT_CACHE_PATH);
     const url = isGo ? this.config.goUrl || DEFAULT_GO_URL : this.config.zenUrl || DEFAULT_ZEN_URL;
     const res = await fetchModels(url, this.config.timeoutMs || DEFAULT_TIMEOUT_MS, apiKey);
-    if (!res.ids) return { result: { status: "error", error: res.error, ...empty }, patch: null };
-    // The go route's written models must stay exactly the installed catalog
-    // set: dsh-llm-pi-ai resolves each configured model's wire api from the
-    // installed catalog (base?.api), and models entries carry no api field, so
+    if (!res.ids) {
+      return { routeKey, result: { status: "error", error: res.error, ...empty }, patch: null };
+    }
+    // Every model written into settings must be describable by the installed
+    // pi-ai catalog: dsh-llm-pi-ai resolves each configured model's wire api
+    // from the catalog (base?.api), and models entries carry no api field, so
     // a live id the catalog does not describe fails the whole settings write
     // ("needs an api"). Filtering also keeps per-model protocol dispatch
-    // correct — and syncGoCatalog() keeps that catalog current from the
-    // official endpoints, so new go models arrive with their own protocol.
-    const ids = isGo ? res.ids.filter((id) => OPENCODE_GO_MODELS[id] !== undefined) : res.ids;
+    // correct — the opencode-go route filters against OPENCODE_GO_MODELS, and
+    // the zen route (route key "opencode") against OPENCODE_MODELS, the same
+    // catalog ids the built-in opencode provider serves.
+    const ids = res.ids.filter(isInCatalog);
+    const extra = res.ids.filter((id) => !isInCatalog(id));
     const defaults = { contextWindow: DEFAULT_CONTEXT_WINDOW, maxTokens: DEFAULT_MAX_TOKENS };
     const built = buildModels(ids, isGo ? catalog.go : catalog.zen, provider.models, defaults);
-    // The go route intentionally carries no api / baseURL fields: omitting
-    // them hands model resolution to the installed catalog, where each model's
-    // own api/baseUrl is used (mixed protocols on one endpoint). Pinning a
-    // route-level api would squash every model onto one wire protocol.
-    // For zen, backfill only what a user-declared provider may legitimately
-    // lack against the catalog (zen models may be workspace-only and absent
-    // from the installed catalog, so a completions route + its baseURL is
-    // required for validation).
+    // Both routes intentionally carry no api / baseURL fields: omitting them
+    // hands model resolution to the installed catalog, where each model's own
+    // api/baseUrl is used (mixed protocols on one endpoint). Pinning a
+    // route-level api would squash every model onto one wire protocol. The
+    // zen route ("opencode") is served by the built-in opencode provider the
+    // same way opencode-go is — four protocols dispatch from the catalog.
     const patch = {};
-    if (!isGo) {
-      if (!provider.api) patch.api = "openai-completions";
-      if (!provider.baseURL) patch.baseURL = url.replace(/\/models$/, "");
-    }
     if (!equalModels(built.models, provider.models)) patch.models = built.models;
     return {
-      result: { status: "ok", error: null, total: built.models.length, added: built.added, removed: built.removed, fallback: built.fallback },
+      routeKey,
+      result: { status: "ok", error: null, total: built.models.length, added: built.added, removed: built.removed, fallback: built.fallback, extra },
       patch: Object.keys(patch).length > 0 ? patch : null,
     };
   }
@@ -364,7 +430,7 @@ export class ModelSyncGateway extends TypertRemoteService {
   /** Write the collected patches and assemble the common result envelope. */
   async commit(entries) {
     const patch = {};
-    for (const [routeId, entry] of Object.entries(entries)) if (entry && entry.patch) patch[routeId] = entry.patch;
+    for (const entry of Object.values(entries)) if (entry && entry.patch) patch[entry.routeKey] = entry.patch;
     let warning = null;
     if (Object.keys(patch).length > 0) {
       try {
@@ -374,7 +440,7 @@ export class ModelSyncGateway extends TypertRemoteService {
           ok: false,
           error: "write-failed",
           warning: String((e && e.message) || e),
-          go: (entries["opencode-go"] && entries["opencode-go"].result) || null,
+          go: (entries.go && entries.go.result) || null,
           zen: (entries.zen && entries.zen.result) || null,
         };
       }
@@ -383,7 +449,7 @@ export class ModelSyncGateway extends TypertRemoteService {
       ok: true,
       error: null,
       warning,
-      go: (entries["opencode-go"] && entries["opencode-go"].result) || null,
+      go: (entries.go && entries.go.result) || null,
       zen: (entries.zen && entries.zen.result) || null,
     };
   }
@@ -412,6 +478,55 @@ export class ModelSyncGateway extends TypertRemoteService {
     };
   }
 
+  /**
+   * Persist the OpenCode workspace API key supplied from the Sync page into
+   * the DSH credentials store under the ZEN_API_KEY reference, so later syncs
+   * (and the provider's own credential resolution) pick it up. Returns true
+   * once written.
+   */
+  async setApiKey(key) {
+    if (typeof key !== "string" || key.length === 0) {
+      // Match the strict result schema: { ok, error, warning, go, zen }.
+      return { ok: false, error: "empty-key", warning: null, go: null, zen: null };
+    }
+    this.ctx.credentials.set(credentialRef("ZEN_API_KEY"), key);
+    return { ok: true, error: null, warning: null, go: null, zen: null };
+  }
+
+  /**
+   * Fetch the account-level availability summary shown above the provider
+   * cards: how many models each tier currently lists (zen filtered by the
+   * workspace key, go the full official list). Errors are reported per-tier
+   * so a failing endpoint does not hide the other one. The key is resolved
+   * from the credentials store (ZEN_API_KEY) or env. The summary rides in
+   * the `zen` result slot to satisfy the strict wire schema.
+   */
+  async fetchAccount() {
+    const apiKey = await resolveApiKey(this.ctx, undefined);
+    if (!apiKey) {
+      return {
+        ok: true,
+        error: null,
+        warning: null,
+        go: null,
+        zen: { status: "account", error: null, total: 0, added: [], removed: [], fallback: [], extra: [], account: { zen: null, go: null, zenError: "no-api-key", goError: null } },
+      };
+    }
+    const summary = await fetchAccountSummary(
+      this.config.zenUrl || DEFAULT_ZEN_URL,
+      this.config.goUrl || DEFAULT_GO_URL,
+      this.config.timeoutMs || DEFAULT_TIMEOUT_MS,
+      apiKey,
+    );
+    return {
+      ok: true,
+      error: null,
+      warning: null,
+      go: null,
+      zen: { status: "account", error: null, total: 0, added: [], removed: [], fallback: [], extra: [], account: summary },
+    };
+  }
+
   /** Sync both routes (one settings write). */
   async sync() {
     const pi = this.readPi();
@@ -419,8 +534,11 @@ export class ModelSyncGateway extends TypertRemoteService {
     // before the settings write, so the whole operation stays coherent.
     const goCatalog = await this.syncGoCatalog();
     const go = await this.collect("opencode-go", pi);
-    const zen = await this.collect("zen", pi);
-    const committed = await this.commit({ "opencode-go": go, zen });
+    const zen = await this.collect(ZEN_ROUTE_KEYS[0], pi, undefined);
+    const committed = await this.commit({
+      go: { routeKey: "opencode-go", result: go.result, patch: go.patch },
+      zen: { routeKey: zen.routeKey, result: zen.result, patch: zen.patch },
+    });
     return {
       ...committed,
       goCatalog,
@@ -431,14 +549,18 @@ export class ModelSyncGateway extends TypertRemoteService {
   async syncGo() {
     const pi = this.readPi();
     const go = await this.collect("opencode-go", pi);
-    return this.commit({ "opencode-go": go });
+    return this.commit({
+      go: { routeKey: "opencode-go", result: go.result, patch: go.patch },
+    });
   }
 
-  /** Sync only the zen route. */
+  /** Sync only the zen route (route key opencode or the legacy zen). */
   async syncZen() {
     const pi = this.readPi();
-    const zen = await this.collect("zen", pi);
-    return this.commit({ zen });
+    const zen = await this.collect(ZEN_ROUTE_KEYS[0], pi, undefined);
+    return this.commit({
+      zen: { routeKey: zen.routeKey, result: zen.result, patch: zen.patch },
+    });
   }
 }
 

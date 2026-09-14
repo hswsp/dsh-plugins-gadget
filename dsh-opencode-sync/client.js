@@ -18,6 +18,18 @@ window.__ModuleLoader__.load({
       nav: "模型同步",
       title: "同步 OpenCode Go / Zen 模型",
       hint: "点击「刷新」从 opencode.ai 拉取最新模型列表：opencode-go 全量同步；zen 只同步你在 opencode.ai 启用的模型。容量（上下文窗口 / 输出上限）按官方目录覆盖。",
+      apiKeyLabel: "OpenCode API Key（可选）",
+      apiKeyPlaceholder: "粘贴 opencode.ai 的 workspace API Key…",
+      apiKeySaved: "已保存 API Key，下次同步无需再填。",
+      apiKeyEmpty: "未填写 Key，将使用已保存的 Key（ZEN_API_KEY / 环境变量）。",
+      apiAccountTitle: "账户可用模型",
+      apiAccountZen: "Zen 可用 {n} 个模型",
+      apiAccountGo: "Go 可用 {n} 个模型",
+      apiAccountZenError: "Zen 模型数获取失败（{err}）",
+      apiAccountGoError: "Go 模型数获取失败（{err}）",
+      apiAccountNoKey: "未设置 Key，无法获取账户信息。",
+      apiAccountLoading: "获取账户信息…",
+      saveKey: "保存 Key",
       loading: "同步中…",
       refresh: "刷新",
       go: "OpenCode Go",
@@ -32,6 +44,8 @@ window.__ModuleLoader__.load({
       added: "新增 {n}",
       removed: "移除 {n}",
       none: "0",
+      extra: "以下模型在官方列表中出现，但已安装的 catalog 尚未收录，已跳过：{ids}",
+      extraHint: "这些模型需要更新 pi-ai（或等待内置 catalog 收录）后才能同步。",
       fallback: "以下模型未在官方目录中找到容量，保留了原值：{ids}",
       skippedNotConfigured: "尚未在「设置 → 模型」中添加该提供商，请先添加后再同步。",
       noApiKey: "未找到可用的 workspace API Key（OPENCODE_WORKSPACE_API_KEY / OPENCODE_GO_API_KEY / ZEN_API_KEY）。zen 的启用模型在 opencode.ai 管理，只有带上该 Key，接口才会只返回你启用的模型；没有 Key 时不会同步 zen（避免误把全部模型写进来）。",
@@ -40,7 +54,7 @@ window.__ModuleLoader__.load({
       timeout: "请求超时，请稍后重试。",
       httpError: "接口返回 HTTP {status}。",
       badJson: "接口响应解析失败。",
-      notConfigured: "llm-pi-ai 设置尚未就绪，请先在「设置 → 模型」中添加 opencode-go 与 zen 提供商。",
+      notConfigured: "llm-pi-ai 设置尚未就绪，请先在「设置 → 模型」中添加 opencode-go 与 opencode（zen）提供商。",
       writeFailed: "写入设置失败：{msg}",
       remoteFailed: "远程调用失败：{msg}",
       workspaceLink: "管理 zen 启用的模型",
@@ -49,6 +63,18 @@ window.__ModuleLoader__.load({
       nav: "Model Sync",
       title: "Sync OpenCode Go / Zen models",
       hint: "Click Refresh to pull the latest model lists from opencode.ai: opencode-go syncs the full list; zen syncs only the models you enabled at opencode.ai. Capacities (context window / max output) are overwritten from the official catalog.",
+      apiKeyLabel: "OpenCode API key (optional)",
+      apiKeyPlaceholder: "Paste your opencode.ai workspace API key…",
+      apiKeySaved: "API key saved; later syncs reuse it.",
+      apiKeyEmpty: "No key entered — will use the saved key (ZEN_API_KEY / env).",
+      apiAccountTitle: "Account available models",
+      apiAccountZen: "Zen: {n} models available",
+      apiAccountGo: "Go: {n} models available",
+      apiAccountZenError: "Zen model count unavailable ({err})",
+      apiAccountGoError: "Go model count unavailable ({err})",
+      apiAccountNoKey: "No key set — account info unavailable.",
+      apiAccountLoading: "Fetching account info…",
+      saveKey: "Save key",
       loading: "Syncing…",
       refresh: "Refresh",
       go: "OpenCode Go",
@@ -63,6 +89,8 @@ window.__ModuleLoader__.load({
       added: "{n} added",
       removed: "{n} removed",
       none: "0",
+      extra: "These models are on the official list but the installed catalog does not describe them yet; skipped: {ids}",
+      extraHint: "They can be synced after pi-ai (or its built-in catalog) is updated.",
       fallback: "No official capacity found for these models; kept existing values: {ids}",
       skippedNotConfigured: "This provider is not added under Settings → Models yet. Add it first, then sync.",
       noApiKey: "No usable workspace API key found (OPENCODE_WORKSPACE_API_KEY / OPENCODE_GO_API_KEY / ZEN_API_KEY). Enabled zen models are managed at opencode.ai; the endpoint only returns your enabled set when called with that key, so zen is skipped without it (to avoid writing the full model list).",
@@ -71,7 +99,7 @@ window.__ModuleLoader__.load({
       timeout: "Request timed out, try again later.",
       httpError: "HTTP {status} from the models endpoint.",
       badJson: "Failed to parse the models response.",
-      notConfigured: "llm-pi-ai settings are not ready; add the opencode-go and zen providers under Settings → Models first.",
+      notConfigured: "llm-pi-ai settings are not ready; add the opencode-go and opencode (zen) providers under Settings → Models first.",
       writeFailed: "Failed to write settings: {msg}",
       remoteFailed: "Remote call failed: {msg}",
       workspaceLink: "Manage enabled zen models",
@@ -82,7 +110,7 @@ window.__ModuleLoader__.load({
     // zod schema before it crosses the wire.
     const TYPERT_REMOTE = {
       package: "dsh-model-sync",
-      descriptors: ["sync", "syncGo", "syncGoCatalog", "syncZen"].map((method) => ({
+      descriptors: ["sync", "syncGo", "syncGoCatalog", "syncZen", "setApiKey", "fetchAccount"].map((method) => ({
         id: "dsh-model-sync#modelSync/" + method,
         service: "modelSync",
         namespace: "modelSync",
@@ -111,6 +139,11 @@ window.__ModuleLoader__.load({
       list: { fontSize: 12, color: "var(--dsw-alias-label-secondary)", lineHeight: 1.6, margin: 0, wordBreak: "break-all" },
       button: { alignSelf: "flex-start", border: "1px solid var(--dsw-alias-border-l2)", color: "var(--dsw-alias-label-primary)", font: "inherit", cursor: "pointer", background: "transparent", borderRadius: 6, padding: "5px 12px" },
       link: { color: "var(--dsw-alias-state-business-primary)", fontSize: 13 },
+      keyRow: { display: "flex", gap: 8, alignItems: "center" },
+      keyInput: { flex: 1, border: "1px solid var(--dsw-alias-border-l2)", borderRadius: 6, padding: "6px 10px", font: "inherit", color: "var(--dsw-alias-label-primary)", background: "var(--dsw-alias-bg-layer-1)" },
+      keyLabel: { fontSize: 13, fontWeight: 600, margin: 0, color: "var(--dsw-alias-label-secondary)" },
+      keyHint: { fontSize: 12, color: "var(--dsw-alias-label-tertiary)", lineHeight: 1.6, margin: 0 },
+      accountRow: { display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13, color: "var(--dsw-alias-label-secondary)", lineHeight: 1.6, margin: 0 },
     };
 
     function joinIds(ids, t) {
@@ -135,6 +168,10 @@ window.__ModuleLoader__.load({
         if (added.length > 0) lines.push(React.createElement("p", { key: "added", style: styles.list }, t("added").replace("{n}", String(added.length)) + ": " + joinIds(added, t)));
         if (removed.length > 0) lines.push(React.createElement("p", { key: "removed", style: styles.list }, t("removed").replace("{n}", String(removed.length)) + ": " + joinIds(removed, t)));
         if (result.fallback && result.fallback.length > 0) lines.push(React.createElement("p", { key: "fallback", style: styles.cardMeta }, t("fallback").replace("{ids}", joinIds(result.fallback, t))));
+        if (result.extra && result.extra.length > 0) {
+          lines.push(React.createElement("p", { key: "extra", style: styles.list }, t("extra").replace("{ids}", joinIds(result.extra, t))));
+          lines.push(React.createElement("p", { key: "extraHint", style: styles.cardMeta }, t("extraHint")));
+        }
         if (added.length === 0 && removed.length === 0) lines.push(React.createElement("p", { key: "unchanged", style: styles.success }, t("unchanged")));
       } else if (result && result.status === "skipped") {
         lines.push(React.createElement("p", { key: "msg", style: styles.error }, t("skippedNotConfigured")));
@@ -161,10 +198,57 @@ window.__ModuleLoader__.load({
     }
 
     function SyncPanel(props) {
-      const { query, syncGo, syncZen, t } = props;
+      const { query, syncGo, syncZen, setApiKey, fetchAccount, t } = props;
       const [results, setResults] = React.useState({ go: null, zen: null });
       const [busy, setBusy] = React.useState({ go: false, zen: false, all: false });
       const [fatal, setFatal] = React.useState(null);
+      const [apiKey, setApiKeyInput] = React.useState("");
+      const [keyMsg, setKeyMsg] = React.useState(null);
+      const [account, setAccount] = React.useState(null);
+      const [accountBusy, setAccountBusy] = React.useState(false);
+
+      // fetchAccount() rides its summary in the zen result slot (see index.js):
+      // unwrap the RPC envelope, then read value.zen.account.
+      const extractAccount = (res) => {
+        const val = res && res.ok === true && res.value !== undefined ? res.value : res;
+        if (!val) return null;
+        const zen = val && val.zen && typeof val.zen === "object" ? val.zen : null;
+        return zen && zen.account ? zen.account : null;
+      };
+
+      const saveKey = () => {
+        setKeyMsg(null);
+        if (!apiKey || apiKey.length === 0) {
+          setKeyMsg({ type: "hint", text: t("apiKeyEmpty") });
+          return;
+        }
+        setKeyMsg(null);
+        Promise.resolve()
+          .then(() => setApiKey(apiKey))
+          .then(() => {
+            setKeyMsg({ type: "ok", text: t("apiKeySaved") });
+            // Refresh the account counts with the newly saved key.
+            setAccountBusy(true);
+            return Promise.resolve().then(fetchAccount).then((res) => {
+              setAccount(extractAccount(res));
+            }).catch(() => {
+              /* account fetch is best-effort */
+            }).finally(() => setAccountBusy(false));
+          })
+          .catch((e) => setKeyMsg({ type: "err", text: t("remoteFailed").replace("{msg}", String((e && e.message) || e)) }));
+      };
+
+      React.useEffect(() => {
+        runAll();
+        setAccountBusy(true);
+        Promise.resolve()
+          .then(fetchAccount)
+          .then((res) => {
+            setAccount(extractAccount(res));
+          })
+          .catch(() => { /* best-effort */ })
+          .finally(() => setAccountBusy(false));
+      }, []);
 
       const applyResult = (result) => {
         // The client api resolves with the RPC envelope { ok, value }; unwrap
@@ -232,6 +316,39 @@ window.__ModuleLoader__.load({
         React.createElement("p", { style: styles.hint },
           React.createElement("a", { style: styles.link, href: "https://opencode.ai/", target: "_blank", rel: "noreferrer" }, t("workspaceLink"))
         ),
+        // API key input (top of the page) + account availability summary.
+        React.createElement("div", { style: styles.card },
+          React.createElement("p", { style: styles.keyLabel }, t("apiKeyLabel")),
+          React.createElement("div", { style: styles.keyRow },
+            React.createElement("input", {
+              style: styles.keyInput,
+              type: "password",
+              value: apiKey,
+              placeholder: t("apiKeyPlaceholder"),
+              onChange: (e) => setApiKeyInput(e.target.value),
+              onKeyDown: (e) => { if (e.key === "Enter") saveKey(); },
+            }),
+            React.createElement("button", { style: styles.button, onClick: saveKey }, t("saveKey"))
+          ),
+          keyMsg
+            ? React.createElement("p", { style: keyMsg.type === "err" ? styles.error : keyMsg.type === "ok" ? styles.success : styles.keyHint }, keyMsg.text)
+            : null,
+          React.createElement("p", { style: styles.keyHint }, t("apiKeyEmpty")),
+          React.createElement("p", { style: styles.keyLabel }, t("apiAccountTitle")),
+          accountBusy
+            ? React.createElement("p", { style: styles.keyHint }, t("apiAccountLoading"))
+            : account
+              ? React.createElement("p", { style: styles.accountRow },
+                  account.zen !== null
+                    ? t("apiAccountZen").replace("{n}", String(account.zen))
+                    : t("apiAccountZenError").replace("{err}", account.zenError || "unknown"),
+                  " · ",
+                  account.go !== null
+                    ? t("apiAccountGo").replace("{n}", String(account.go))
+                    : t("apiAccountGoError").replace("{err}", account.goError || "unknown"),
+                )
+              : React.createElement("p", { style: styles.keyHint }, t("apiAccountNoKey")),
+        ),
         fatal
           ? React.createElement("p", { style: styles.error },
               typeof fatal.error === "string"
@@ -265,7 +382,12 @@ window.__ModuleLoader__.load({
       // action that makes every go model usable, so the Go card triggers it.
       const syncGo = async () => (await withApi()).syncGoCatalog();
       const syncZen = async () => (await withApi()).syncZen();
-      const injected = () => ({ query, syncGo, syncZen, t });
+      // Persist the API key typed into the page (writes ZEN_API_KEY into the
+      // DSH credentials store) and fetch the account-level model counts for
+      // the availability summary shown at the top of the page.
+      const setApiKey = async (key) => (await withApi()).setApiKey(key);
+      const fetchAccount = async () => (await withApi()).fetchAccount();
+      const injected = () => ({ query, syncGo, syncZen, setApiKey, fetchAccount, t });
 
       ctx.slots.inject("settings.section", () => ctx.slots.register({
         name: "settings.section",

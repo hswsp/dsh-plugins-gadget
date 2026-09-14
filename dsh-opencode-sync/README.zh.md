@@ -24,6 +24,10 @@
 
 在「设置 → 模型」侧边栏新增「模型同步」页：
 
+- **顶部 API Key 输入框**：粘贴你的 OpenCode workspace API Key，点击「保存 Key」写入 DSH
+  凭据（`ZEN_API_KEY`），之后每次同步都自动复用。
+- **账户可用模型摘要**：Key 输入框下方实时显示两个档位各有多少可用模型（zen 按你的 Key
+  过滤、go 为官方全量）。
 - **顶部「刷新」**：一次性同步 opencode-go 与 zen（只产生一次设置写入）。
 - **每张卡片各自的「同步」按钮**：OpenCode Go 与 OpenCode Zen 可单独同步，互不影响。
 
@@ -35,15 +39,20 @@
   2. 套用 <https://opencode.ai/docs/go#endpoints> 的权威 per-model 协议表
      （`openai-responses` / `openai-completions` / `anthropic-messages`），在 api.json
      漏标处覆盖（例如 qwen 的 messages 组）；
-  3. 把重建的 33 模型目录写入 pi-ai 的每一份 `opencode-go.json`（运行时进程读取的
-     pnpm store 副本 + profile 插件解析的 checkout 副本）；
+  3. 把重建的模型目录写入**每一份真实存在的** pi-ai `opencode-go.json`——运行时
+     bundle 的 `lib/node_modules/...`（dsh 进程实际读取的位置，profile 的符号链接也
+     指向这里）、pnpm store / checkout 布局，以及旧版 home 布局。**不存在的路径会被
+     跳过**，因此本机没有某份副本时不会再报无意义的写入失败；
   4. 保持 settings 里的 `opencode-go` **精简**——不写 `api` / `baseURL` / `models`，
      让 llm-pi-ai 从目录按模型分发协议。写 provider 级 `api` 会把所有模型压死在一个
      协议上。
   之后 Go 套餐新增模型也会自动带上正确的协议。
-- **zen**：以 `https://opencode.ai/zen/v1/models` **携带 workspace API Key** 调用。
-  该接口只返回你在 [opencode.ai](https://opencode.ai) 上**启用的模型**（禁用列表按
-  Key 过滤），因此 zen 同步的正是你启用的那部分，绝不会把全部模型写进来。
+- **zen（「opencode」路由）— 与 go 同一种方式，走内置目录**：该 provider 路由使用
+  pi-ai 内置 provider id **`opencode`**（旧配置叫 `zen`，插件两个名字都兼容）。以
+  `https://opencode.ai/zen/v1/models` **携带 workspace API Key** 调用，该接口只返回
+  你在 [opencode.ai](https://opencode.ai) 上**启用的模型**，因此同步的正是你启用的那
+  部分。路由保持精简（不写 `api` / `baseURL`），模型按已安装的 pi-ai `opencode` 目录
+  过滤，四种协议（含 `google-generative-ai` 的 Gemini 家族）都从目录逐模型分发。
 - **容量覆盖**：每个模型的 `contextWindow` / `maxTokens` / `input`（text / image）按
   opencode 官方目录（`~/.cache/opencode/models.json`，即 models.dev 数据）覆盖。目录中
   缺失的模型（如刚发布的新模型）保留原有配置值，缺省回退到 `262144 / 32768`，并在结果
@@ -62,7 +71,9 @@
 ## API Key
 
 - opencode-go 不需要 Key。
-- zen 需要 workspace API Key，按优先级从以下来源解析：
+- zen 需要 workspace API Key。**推荐直接在「模型同步」页顶部的输入框中粘贴并点击
+  「保存 Key」**——它会写入 DSH 凭据 `ZEN_API_KEY`，之后的同步（以及 provider 自身的
+  凭据解析）都会自动复用。也可以按优先级从以下来源解析：
   1. DSH 凭据 / 环境变量 `OPENCODE_WORKSPACE_API_KEY`
   2. `OPENCODE_GO_API_KEY`（Go 订阅的 Key，本身也是 workspace Key）
   3. `ZEN_API_KEY`
@@ -117,16 +128,19 @@ dsh plugin --profile web add ../../../plugins/dsh-model-sync
 ## 使用方法
 
 1. 打开 DSH Web →「设置 → 模型」。
-2. 确保 `opencode-go` 与 `zen` 提供商已存在于该页面 —— 插件不会从零创建提供商
-   （`apiKeyEnv` 仍需配置在提供商上）。
-3. 打开「模型同步」页，点击「刷新」（或某个提供商对应的「同步」按钮）。Go 卡片调用
-   `syncGoCatalog()`：从官方数据重建 pi-ai 目录文件，结果会报告 `total` 写入的模型数、
-   `byProtocol` 协议分布和写入的路径。
-4. **重启 dsh web**，让运行时进程加载重建后的目录（三种协议的 per-model 分发随即生效）。
+2. 确保 `opencode-go` 与 `opencode`（zen）提供商已存在于该页面 —— 插件不会从零创建
+   提供商（`apiKeyEnv` 仍需配置在提供商上）；旧配置里叫 `zen` 的也一样兼容。
+3. 打开「模型同步」页。如果还没有配置 workspace API Key，在顶部输入框中粘贴并点
+   「保存 Key」；下方的账户摘要会确认两个档位各有多少模型可用。
+4. 点击「刷新」（或某个提供商对应的「同步」按钮）。Go 卡片调用 `syncGoCatalog()`：
+   从官方数据重建 pi-ai 目录文件，结果会报告 `total` 写入的模型数、`byProtocol`
+   协议分布和写入的路径。
+5. **重启 dsh web**，让运行时进程加载重建后的目录（多协议的 per-model 分发随即生效）。
 
 ## 常见问题
 
-- **zen 被跳过，提示找不到 workspace API Key** —— 配置
+- **zen 被跳过，提示找不到 workspace API Key** —— 在「模型同步」页顶部粘贴 Key 并点
+  「保存 Key」，或配置
   `OPENCODE_WORKSPACE_API_KEY` / `OPENCODE_GO_API_KEY` / `ZEN_API_KEY` 之一，或确保
   opencode 已登录（存在 `~/.local/share/opencode/auth.json`）。
 - **HTTP 401** —— workspace Key 无效或已过期，去 [opencode.ai](https://opencode.ai) 刷新。
@@ -136,9 +150,9 @@ dsh plugin --profile web add ../../../plugins/dsh-model-sync
   不一致。手动兜底：把本插件目录复制到
   `profiles/web/node_modules/dsh-model-sync/`（hoisted 布局下即为真实目录），并在
   `cordis.patch.yml` 中手动加上 `- id: model-sync` / `name: 'dsh-model-sync'`。
-- **设置写入被拒，报 `needs an api`** —— `opencode-go` provider 上残留的旧 `models`
-  列表里含有已安装目录无法描述的 id。删掉 provider 的 `models`（以及 `api` / `baseURL`），
-  让路由保持精简、由目录分发协议。
+- **设置写入被拒，报 `needs an api`** —— `opencode-go` / `opencode`（zen）provider 上
+  残留的旧 `models` 列表里含有已安装目录无法描述的 id。删掉 provider 的 `models`
+  （以及 `api` / `baseURL`），让路由保持精简、由目录分发协议；再点一次同步即可。
 - **提示容量回退** —— 本地目录（`~/.cache/opencode/models.json`）过期或不存在；先运行
   一次 opencode 刷新缓存，或手动核对该模型。
 

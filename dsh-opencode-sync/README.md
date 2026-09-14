@@ -29,9 +29,14 @@ This repository hosts the plugin (package name `dsh-model-sync`) and is publishe
 
 A **Model Sync** page is added to the `Settings → Models` sidebar:
 
-- **Refresh** button on top — syncs both `opencode-go` and `zen` in a single operation
-  (one settings write).
-- **Per-card Sync buttons** — OpenCode Go and OpenCode Zen can be synced independently.
+- **API key field at the top** — paste your OpenCode workspace API key once; it is saved
+  into the DSH credentials store (`ZEN_API_KEY`) and reused by every later sync.
+- **Account availability summary** — right under the key field the page shows how many
+  models each tier currently lists (zen filtered by your key, go the full official list).
+- **Refresh** button — syncs both `opencode-go` and the zen-tier route in a single
+  operation (one settings write).
+- **Per-card Sync buttons** — OpenCode Go and the zen-tier provider can be synced
+  independently.
 
 Sync behavior:
 
@@ -43,17 +48,24 @@ Sync behavior:
      [https://opencode.ai/docs/go#endpoints](https://opencode.ai/docs/go#endpoints)
      (`openai-responses` / `openai-completions` / `anthropic-messages`), overriding
      `api.json` where it omits annotations (e.g. the qwen messages group);
-  3. writes the rebuilt 33-model catalog into every copy of pi-ai's
-     `opencode-go.json` (the pnpm store that the runtime process reads, and the checkout
-     copy the profile plugin resolves);
+  3. writes the rebuilt catalog into every existing copy of pi-ai's
+     `opencode-go.json` — the runtime bundle's `lib/node_modules/...` tree the
+     dsh process reads (and the profile symlinks point to), the pnpm store /
+     checkout layout, and the legacy home layout. Missing paths are skipped,
+     so an install that does not have a given copy never reports a phantom
+     write failure;
   4. keeps the `opencode-go` provider in settings **lean** — no `api`, `baseURL`, or
      `models` fields — so llm-pi-ai dispatches per model from the catalog. Pinning a
      route-level `api` would squash every model onto one wire protocol.
   New go models arrive with their correct protocol automatically.
-- **zen**: `https://opencode.ai/zen/v1/models` is called **with your workspace API key**.
-  That endpoint only returns the models you have **enabled** on [opencode.ai](https://opencode.ai)
-  (the disabled list is filtered by key), so zen sync writes exactly your enabled subset —
-  never the full catalog.
+- **zen-tier ("opencode" route) — catalog-driven, same as go**: the provider route lives
+  under the pi-ai built-in provider id **`opencode`** (older configs called it `zen`; the
+  sync accepts both names). `https://opencode.ai/zen/v1/models` is called **with your
+  workspace API key**; that endpoint only returns the models you have **enabled** on
+  [opencode.ai](https://opencode.ai), so the sync writes exactly your enabled subset. The
+  route is kept lean (no `api` / `baseURL`) and its models are filtered against the
+  installed pi-ai `opencode` catalog, so all four wire protocols (including the
+  `google-generative-ai` Gemini family) dispatch per model from the catalog.
 - **Capacity overwrite**: each model's `contextWindow` / `maxTokens` / `input` (text /
   image) is taken from the official catalog opencode itself uses
   (`~/.cache/opencode/models.json`, models.dev-backed). Models missing from that catalog
@@ -75,7 +87,11 @@ paths.
 ## API keys
 
 - **opencode-go**: no key required.
-- **zen**: a workspace API key is required. It is resolved in this priority order:
+- **zen-tier**: a workspace API key is required. You can paste it straight into the
+  **API key field** at the top of the Model Sync page — clicking **Save key** writes it
+  into the DSH credentials store as `ZEN_API_KEY`, so every later sync (and the provider's
+  own credential resolution) picks it up. Alternatively it is resolved from the usual
+  sources in priority order:
   1. DSH credentials / environment variable `OPENCODE_WORKSPACE_API_KEY`
   2. `OPENCODE_GO_API_KEY` (the Go subscription key is itself a workspace key)
   3. `ZEN_API_KEY`
@@ -132,18 +148,23 @@ Add an insert entry to your DSH profile's `cordis.patch.yml`:
 ## Usage
 
 1. Open DSH web → **Settings → Models**.
-2. Make sure the `opencode-go` and `zen` providers already exist there — the plugin
-   does not create providers from scratch (`apiKeyEnv` must already live on the provider).
-3. Open the **Model Sync** page and click **Refresh** (or one of the per-provider
-   **Sync** buttons). The Go card calls `syncGoCatalog()`: it rebuilds the pi-ai catalog
-   file from the official data — the result shows `total` models written, the
-   `byProtocol` split, and the file paths written.
-4. **Restart dsh web** so the runtime process imports the rebuilt catalog (per-model
-   protocols then dispatch correctly across all three wire protocols).
+2. Make sure the `opencode-go` and `opencode` (zen) providers already exist there — the
+   plugin does not create providers from scratch (`apiKeyEnv` must already live on the
+   provider). A config that still names the provider `zen` works too.
+3. Open the **Model Sync** page. If you have not configured a workspace API key yet,
+   paste it into the field at the top and click **Save key**; the availability summary
+   below it confirms how many models each tier exposes.
+4. Click **Refresh** (or one of the per-provider **Sync** buttons). The Go card calls
+   `syncGoCatalog()`: it rebuilds the pi-ai catalog file from the official data — the
+   result shows `total` models written, the `byProtocol` split, and the file paths
+   written.
+5. **Restart dsh web** so the runtime process imports the rebuilt catalog (per-model
+   protocols then dispatch correctly across all wire protocols).
 
 ## Troubleshooting
 
-- **zen skipped, "no usable workspace API key"** — configure one of
+- **zen skipped, "no usable workspace API key"** — paste the key into the field at the
+  top of the Model Sync page and click **Save key**, or configure one of
   `OPENCODE_WORKSPACE_API_KEY` / `OPENCODE_GO_API_KEY` / `ZEN_API_KEY`, or make sure
   opencode is logged in (`~/.local/share/opencode/auth.json`).
 - **HTTP 401** — the workspace key is invalid or expired; refresh it at
@@ -156,9 +177,9 @@ Add an insert entry to your DSH profile's `cordis.patch.yml`:
   and add the `- id: model-sync` / `name: 'dsh-model-sync'` insert entry to
   `cordis.patch.yml` by hand.
 - **settings write rejected, "needs an api"** — a stale `models` list on the
-  `opencode-go` provider contains ids the installed catalog does not describe. Remove the
-  provider's `models` (and `api` / `baseURL`) so the route stays lean and the catalog
-  dispatches protocols.
+  `opencode-go` / `opencode` (zen) provider contains ids the installed catalog does not
+  describe. Remove the provider's `models` (and `api` / `baseURL`) so the route stays
+  lean and the catalog dispatches protocols; then sync once more.
 - **capacities reported as fallback** — the local catalog
   (`~/.cache/opencode/models.json`) is stale or absent; run opencode once so it refreshes
   the cache, or check the model manually.
