@@ -357,7 +357,7 @@ async function catalogFileCandidates() {
 /** Write the rebuilt go catalog to every copy of the pi-ai data file. */
 async function writeCatalogFiles(groups) {
   const payload = JSON.stringify(groups, null, 1) + "\n";
-  const paths = [...new Set(catalogFileCandidates())];
+  const paths = [...new Set(await catalogFileCandidates())];
   const written = [];
   const failed = [];
   for (const p of paths) {
