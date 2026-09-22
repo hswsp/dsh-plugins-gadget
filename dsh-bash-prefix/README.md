@@ -73,28 +73,39 @@ Requires DSH ≥ `0.1.5-rc.1`. `@deepseek-ai/dsh-settings@0.1.5` removed the
 registers/reads the `"bash-prefix"` namespace with plain strings; older `dsh-settings`
 (`^0.1.0-rc.6`) accepted plain strings too, so the plugin works on both.
 
+Works on **dsh CLI** and **DSH Desktop** from this single codebase — see the
+[repository README](../README.md#同时支持-dsh-cli-与-dsh-desktop) for why.
+
 ## Install
 
 ```bash
-# from this repository
+# dsh CLI, into a profile
 dsh plugin --profile web add /path/to/dsh-plugins-gadget/dsh-bash-prefix
-
-# or, inside the DeepSeek Harness source tree while developing
-dsh plugin --profile web add ../../../plugins/dsh-bash-prefix
 ```
 
-Restart the dsh web service afterwards (the web profile hot-reloads `cordis.patch.yml`, so
-in most cases no restart is needed).
+Then restart the dsh process. The package declares
+`dsh.bundle.patch` → `./cordis.patch.yml`, so the host loads it as a **profile
+bundle**: its loader entry is registered by the bundle's own patch layer and the
+package must also be listed in the profile's `dsh.profile.bundles`.
+
+**DSH Desktop** manages plugins through its market (dshmarket); a directory-form
+plugin installs through Desktop's bundled generation installer, and Desktop's
+projection then links it into the profile automatically.
 
 ## Configuration (cordis)
 
-Add an insert entry to your DSH profile's `cordis.patch.yml`:
+**Nothing to add by hand.** The bundle patch ships inside the package and
+registers the loader entry itself:
 
 ```yaml
+# cordis.patch.yml, inside this package
 - insert:
     - id: bash-prefix
-      name: 'dsh-bash-prefix'
+      name: dsh-bash-prefix
 ```
+
+Adding the same `id` to the profile's own `cordis.patch.yml` as well would fail
+profile boot with `duplicate loader entry id: bash-prefix`.
 
 No extra plugin config is required — the toggle state and rule list live in the
 `settings.bash-prefix` namespace and are edited from the Settings UI.
@@ -133,7 +144,8 @@ No extra plugin config is required — the toggle state and rule list live in th
 | `index.js`       | Host half: `BashPrefixGateway` service (a Typert Remote) + shell wrap  |
 | `client.js`      | Browser half: settings sidebar section + Enable/Disable & rule list    |
 | `typert.host.js` | Typert host manifest (strict-mode dispatch of the `bashPrefix` Remote) |
-| `package.json`   | Package metadata + DSH client inject manifest                          |
+| `cordis.patch.yml` | Bundle patch: registers the `bash-prefix` loader entry              |
+| `package.json`   | Package metadata + `dsh.bundle` / `dsh.client` declarations            |
 
 ## License
 

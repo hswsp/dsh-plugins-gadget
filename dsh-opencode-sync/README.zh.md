@@ -89,32 +89,46 @@
 直接传给 `ctx.settings.get/update`；旧版 `dsh-settings`（`^0.1.0-rc.6`）同样接受
 普通字符串，因此新旧版本均可使用。
 
+**同一份代码同时支持 dsh CLI 与 DSH Desktop** —— 原因见
+[仓库说明](../README.md#同时支持-dsh-cli-与-dsh-desktop)。
+
 ## 安装
 
 ```bash
-# 从本仓库安装
-dsh plugin --profile web add /path/to/dsh-opencode-sync
-
-# 或是在 DeepSeek Harness 源码树内开发调试
-dsh plugin --profile web add ../../../plugins/dsh-model-sync
+# dsh CLI：装进某个 profile
+dsh plugin --profile web add /path/to/dsh-plugins-gadget/dsh-opencode-sync
 ```
 
-重启 dsh web 服务后生效（目录重建与设置变更在启动时加载）。
+重启 dsh 进程后生效（目录重建与设置变更在启动时加载）。本包声明了
+`dsh.bundle.patch` → `./cordis.patch.yml`，宿主会把它当作 **profile bundle** 加载：
+loader entry 由包自带的 patch 层注册，同时该包需要出现在 profile 的
+`dsh.profile.bundles` 列表中。
+
+**DSH Desktop** 通过插件市场（dshmarket）管理插件；目录形式的插件由桌面自带的
+generation 安装器装入，桌面随后自动把它投影进 profile。
 
 ## 配置（cordis）
 
-在 DSH profile 的 `cordis.patch.yml` 中新增 insert 条目：
+**无需手动添加任何内容。** bundle patch 随包发布，自己注册 loader entry：
 
 ```yaml
+# 包内的 cordis.patch.yml
 - insert:
     - id: model-sync
-      name: 'dsh-model-sync'
-      config:
-        goUrl: 'https://opencode.ai/zen/go/v1/models'
-        zenUrl: 'https://opencode.ai/zen/v1/models'
-        modelsApi: 'https://models.opencode.ai/api.json'
-        cachePath: '~/.cache/opencode/models.json'
-        timeoutMs: 15000
+      name: dsh-model-sync
+```
+
+若再往 profile 自己的 `cordis.patch.yml` 里加同样的 `id`，会导致 profile 启动失败并报
+`duplicate loader entry id: model-sync`。要覆盖下列默认值，改 bundle patch 层里的该条目：
+
+```yaml
+- id: model-sync
+  config:
+    goUrl: 'https://opencode.ai/zen/go/v1/models'
+    zenUrl: 'https://opencode.ai/zen/v1/models'
+    modelsApi: 'https://models.opencode.ai/api.json'
+    cachePath: '~/.cache/opencode/models.json'
+    timeoutMs: 15000
 ```
 
 | 选项         | 默认值                                              | 说明                                     |
@@ -147,9 +161,10 @@ dsh plugin --profile web add ../../../plugins/dsh-model-sync
   注意还有地区限制：部分模型只对支持地区的出口 IP 提供服务，网关会对不支持的出口 IP
   返回 403 `[unsupported_country_region_territory]`。
 - **安装时报 `ERR_PNPM_UNEXPECTED_STORE`** —— DSH profile 的 pnpm store 路径与插件
-  不一致。手动兜底：把本插件目录复制到
-  `profiles/web/node_modules/dsh-model-sync/`（hoisted 布局下即为真实目录），并在
-  `cordis.patch.yml` 中手动加上 `- id: model-sync` / `name: 'dsh-model-sync'`。
+  不一致。本包已声明 `dsh.bundle.patch`，正常安装即可，**不要**再往 profile 的
+  `cordis.patch.yml` 手动加 `- id: model-sync`（会报 `duplicate loader entry id`）。
+- **启动报 `duplicate loader entry id: model-sync`** —— profile 自己的
+  `cordis.patch.yml` 里残留了同名 entry；删掉那几行即可（注册已由包内的 bundle patch 负责）。
 - **设置写入被拒，报 `needs an api`** —— `opencode-go` / `opencode`（zen）provider 上
   残留的旧 `models` 列表里含有已安装目录无法描述的 id。删掉 provider 的 `models`
   （以及 `api` / `baseURL`），让路由保持精简、由目录分发协议；再点一次同步即可。
@@ -163,7 +178,8 @@ dsh plugin --profile web add ../../../plugins/dsh-model-sync
 | `index.js`       | 服务端半边：`ModelSyncGateway` 服务（Typert Remote）与同步逻辑 |
 | `client.js`      | 浏览器半边：设置侧边栏分区 + React 同步面板                |
 | `typert.host.js` | Typert host 清单（`modelSync` Remote 的 strict 模式分发）  |
-| `package.json`   | 包元数据 + DSH client inject 清单                          |
+| `cordis.patch.yml` | bundle patch：注册 `model-sync` loader entry             |
+| `package.json`   | 包元数据 + `dsh.bundle` / `dsh.client` 声明                |
 
 ## 许可
 

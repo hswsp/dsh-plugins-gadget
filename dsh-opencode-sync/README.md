@@ -108,33 +108,50 @@ Requires DSH ≥ `0.1.5-rc.1`. `@deepseek-ai/dsh-settings@0.1.5` removed the
 passes `"llm-pi-ai"` straight to `ctx.settings.get/update`; older `dsh-settings`
 (`^0.1.0-rc.6`) accepted plain strings too, so the plugin works on both.
 
+Works on **dsh CLI** and **DSH Desktop** from this single codebase — see the
+[repository README](../README.md#同时支持-dsh-cli-与-dsh-desktop) for why.
+
 ## Installation
 
 ```bash
-# from this repository
-dsh plugin --profile web add /path/to/dsh-opencode-sync
-
-# or, while developing inside the DeepSeek Harness source tree
-dsh plugin --profile web add ../../../plugins/dsh-model-sync
+# dsh CLI, into a profile
+dsh plugin --profile web add /path/to/dsh-plugins-gadget/dsh-opencode-sync
 ```
 
-Restart the dsh web service afterwards (the catalog rebuild and settings changes are
-picked up on startup).
+Then restart the dsh process (the catalog rebuild and settings changes are picked
+up on startup). The package declares `dsh.bundle.patch` → `./cordis.patch.yml`, so
+the host loads it as a **profile bundle**: its loader entry is registered by the
+bundle's own patch layer and the package must also be listed in the profile's
+`dsh.profile.bundles`.
+
+**DSH Desktop** manages plugins through its market (dshmarket); a directory-form
+plugin installs through Desktop's bundled generation installer, and Desktop's
+projection then links it into the profile automatically.
 
 ## Configuration (cordis)
 
-Add an insert entry to your DSH profile's `cordis.patch.yml`:
+**Nothing to add by hand.** The bundle patch ships inside the package and
+registers the loader entry itself:
 
 ```yaml
+# cordis.patch.yml, inside this package
 - insert:
     - id: model-sync
-      name: 'dsh-model-sync'
-      config:
-        goUrl: 'https://opencode.ai/zen/go/v1/models'
-        zenUrl: 'https://opencode.ai/zen/v1/models'
-        modelsApi: 'https://models.opencode.ai/api.json'
-        cachePath: '~/.cache/opencode/models.json'
-        timeoutMs: 15000
+      name: dsh-model-sync
+```
+
+Adding the same `id` to the profile's own `cordis.patch.yml` as well would fail
+profile boot with `duplicate loader entry id: model-sync`. To override the
+defaults below, edit the entry in the bundle patch layer instead:
+
+```yaml
+- id: model-sync
+  config:
+    goUrl: 'https://opencode.ai/zen/go/v1/models'
+    zenUrl: 'https://opencode.ai/zen/v1/models'
+    modelsApi: 'https://models.opencode.ai/api.json'
+    cachePath: '~/.cache/opencode/models.json'
+    timeoutMs: 15000
 ```
 
 | Option       | Default                                        | Description                                         |
@@ -172,10 +189,12 @@ Add an insert entry to your DSH profile's `cordis.patch.yml`:
   from supported regions, and the gateway answers 403
   `[unsupported_country_region_territory]` for unsupported egress IPs.
 - **`ERR_PNPM_UNEXPECTED_STORE` during install** — the pnpm store path of your DSH
-  profile differs from the plugin's. Fallback: copy this directory into
-  `profiles/web/node_modules/dsh-model-sync/` (the real directory in a hoisted layout)
-  and add the `- id: model-sync` / `name: 'dsh-model-sync'` insert entry to
-  `cordis.patch.yml` by hand.
+  profile differs from the plugin's. The package declares `dsh.bundle.patch`, so a
+  normal install is enough — do **not** also add a `- id: model-sync` insert entry to
+  the profile's `cordis.patch.yml` (that reports `duplicate loader entry id`).
+- **boot fails with `duplicate loader entry id: model-sync`** — a leftover manual
+  entry in the profile's own `cordis.patch.yml`; delete those lines (registration is
+  owned by the in-package bundle patch).
 - **settings write rejected, "needs an api"** — a stale `models` list on the
   `opencode-go` / `opencode` (zen) provider contains ids the installed catalog does not
   describe. Remove the provider's `models` (and `api` / `baseURL`) so the route stays
@@ -191,7 +210,8 @@ Add an insert entry to your DSH profile's `cordis.patch.yml`:
 | `index.js`       | Host half: `ModelSyncGateway` service (a Typert Remote), sync logic  |
 | `client.js`      | Browser half: settings sidebar section + React sync panel            |
 | `typert.host.js` | Typert host manifest (strict-mode dispatch of the `modelSync` Remote)|
-| `package.json`   | Package metadata + DSH client inject manifest                        |
+| `cordis.patch.yml` | Bundle patch: registers the `model-sync` loader entry              |
+| `package.json`   | Package metadata + `dsh.bundle` / `dsh.client` declarations          |
 
 ## License
 

@@ -63,27 +63,36 @@ DSH 的 bash 工具通过 `ctx.shell.resolve()` 解析每条命令，并把返�
 读写 `"bash-prefix"` 命名空间；旧版 `dsh-settings`（`^0.1.0-rc.6`）同样接受普通字符串，
 因此新旧版本均可使用。
 
+**同一份代码同时支持 dsh CLI 与 DSH Desktop** —— 原因见
+[仓库说明](../README.md#同时支持-dsh-cli-与-dsh-desktop)。
+
 ## 安装
 
 ```bash
-# 从本仓库
+# dsh CLI：装进某个 profile
 dsh plugin --profile web add /path/to/dsh-plugins-gadget/dsh-bash-prefix
-
-# 或在 DeepSeek Harness 源码树里开发时
-dsh plugin --profile web add ../../../plugins/dsh-bash-prefix
 ```
 
-安装后重启 dsh web 服务（web profile 会热重载 `cordis.patch.yml`，多数情况无需重启）。
+安装后重启 dsh 进程。本包声明了 `dsh.bundle.patch` → `./cordis.patch.yml`，宿主会把它
+当作 **profile bundle** 加载：loader entry 由包自带的 patch 层注册，同时该包需要出现在
+profile 的 `dsh.profile.bundles` 列表中。
+
+**DSH Desktop** 通过插件市场（dshmarket）管理插件；目录形式的插件由桌面自带的
+generation 安装器装入，桌面随后自动把它投影进 profile。
 
 ## 配置（cordis）
 
-在你的 DSH profile 的 `cordis.patch.yml` 加一条 insert：
+**无需手动添加任何内容。** bundle patch 随包发布，自己注册 loader entry：
 
 ```yaml
+# 包内的 cordis.patch.yml
 - insert:
     - id: bash-prefix
-      name: 'dsh-bash-prefix'
+      name: dsh-bash-prefix
 ```
+
+若再往 profile 自己的 `cordis.patch.yml` 里加同样的 `id`，会导致 profile 启动失败并报
+`duplicate loader entry id: bash-prefix`。
 
 无需额外配置项——开关状态与规则列表存放在 `settings.bash-prefix` 命名空间，直接在设置界面
 编辑。
@@ -99,8 +108,10 @@ dsh plugin --profile web add ../../../plugins/dsh-bash-prefix
 ## 排错
 
 - **安装报 `ERR_PNPM_UNEXPECTED_STORE`** —— 你的 DSH profile 的 pnpm store 路径与插件不一致。
-  兜底：把本目录复制到 `profiles/web/node_modules/dsh-bash-prefix/`（hoisted 布局下的真实目录），
-  并在 `cordis.patch.yml` 手动加 `- id: bash-prefix` / `name: 'dsh-bash-prefix'`。
+  本包已声明 `dsh.bundle.patch`，正常安装即可，**不要**再往 profile 的 `cordis.patch.yml`
+  手动加 `- id: bash-prefix`（会报 `duplicate loader entry id`）。
+- **启动报 `duplicate loader entry id: bash-prefix`** —— profile 自己的 `cordis.patch.yml`
+  里残留了同名 entry；删掉那几行即可（注册已由包内的 bundle patch 负责）。
 - **安装后设置里没有「Bash 预处理」入口** —— 刷新 / 重启 dsh web 服务，让 client bundle 被加载。
 - **改了 host 端（index.js）不生效** —— host 端只在启动时加载，改完 `index.js` 需要重启 dsh web
   进程（浏览器端 `client.js` 刷新页面即可）。
@@ -116,7 +127,8 @@ dsh plugin --profile web add ../../../plugins/dsh-bash-prefix
 | `index.js`       | Host 端：`BashPrefixGateway` 服务（Typert Remote）+ shell 包装   |
 | `client.js`      | 浏览器端：设置侧边栏 + Enable/Disable 开关/规则列表面板           |
 | `typert.host.js` | Typert host 清单（`bashPrefix` Remote 的 strict 分发）           |
-| `package.json`   | 包元数据 + DSH client inject 清单                                |
+| `cordis.patch.yml` | bundle patch：注册 `bash-prefix` loader entry                  |
+| `package.json`   | 包元数据 + `dsh.bundle` / `dsh.client` 声明                      |
 
 ## 许可
 
