@@ -86,6 +86,38 @@ const PROTO_BASE_URL = {
   "anthropic-messages": "https://opencode.ai/zen/go",
 };
 
+// The current OpenCode Go subscription's model list, from the "The current
+// list of models includes" section of https://opencode.ai/v2/docs/console/go.
+// This is the authoritative set of models the Go plan actually serves. The
+// /zen/go/v1/models endpoint and models.opencode.ai/api.json both return the
+// much larger pool of every model opencode has tested or is trialing on the
+// endpoint (previews, experiments, retired ids) — syncing those verbatim
+// floods Settings → Models with ids the subscription cannot use. The zen
+// route needs no such list: its endpoint already filters to the models the
+// user enabled (the api key), while the go route is key-less and therefore
+// unfiltered. Keep this set in sync with the docs page; ids not listed here
+// are skipped and reported as `skippedFromSubscription` in the sync result.
+const OFFICIAL_GO_SUBSCRIPTION = new Set([
+  "grok-4.5",
+  "glm-5.2",
+  "glm-5.1",
+  "gpt-5.6-luna",
+  "kimi-k3",
+  "kimi-k2.7-code",
+  "kimi-k2.6",
+  "mimo-v2.5",
+  "mimo-v2.5-pro",
+  "minimax-m3",
+  "minimax-m2.7",
+  "qwen3.8-max",
+  "qwen3.7-max",
+  "qwen3.7-plus",
+  "qwen3.6-plus",
+  "deepseek-v4-pro",
+  "deepseek-v4-flash",
+  "hy3",
+]);
+
 export const Config = z.object({
   goUrl: z.string().default(DEFAULT_GO_URL),
   zenUrl: z.string().default(DEFAULT_ZEN_URL),
@@ -139,7 +171,11 @@ async function fetchAccountSummary(zenUrl, goUrl, timeoutMs, apiKey) {
   const go = await fetchModels(goUrl, timeoutMs, apiKey);
   return {
     zen: zen.ids ? zen.ids.length : null,
-    go: go.ids ? go.ids.length : null,
+    go: go.ids
+      // The key-less go endpoint lists every tested model; count only the
+      // ones the current Go subscription includes (see the docs list).
+      ? go.ids.filter((id) => OFFICIAL_GO_SUBSCRIPTION.has(id)).length
+      : null,
     zenError: zen.error,
     goError: go.error,
   };
@@ -407,7 +443,12 @@ export class ModelSyncGateway extends TypertRemoteService {
     const isInCatalog = isGo
       ? (id) => OPENCODE_GO_MODELS[id] !== undefined
       : (id) => OPENCODE_MODELS[id] !== undefined;
-    const empty = { total: 0, added: [], removed: [], fallback: [], extra: [] };
+    // Subscription check (go route only): the key-less go endpoint returns
+    // every model opencode has tested on the endpoint, including previews and
+    // retired ids outside the current Go plan. Only ids the docs list as
+    // currently in the subscription are written into Settings -> Models.
+    const isInSubscription = (id) => !isGo || OFFICIAL_GO_SUBSCRIPTION.has(id);
+    const empty = { total: 0, added: [], removed: [], fallback: [], extra: [], skippedFromSubscription: [] };
     // Precondition: the route must already exist in Settings -> Models (its
     // apiKeyEnv lives on the provider, and creating a provider from scratch
     // would fail validation).
@@ -432,8 +473,9 @@ export class ModelSyncGateway extends TypertRemoteService {
     // correct — the opencode-go route filters against OPENCODE_GO_MODELS, and
     // the zen route (route key "opencode") against OPENCODE_MODELS, the same
     // catalog ids the built-in opencode provider serves.
-    const ids = res.ids.filter(isInCatalog);
+    const ids = res.ids.filter((id) => isInCatalog(id) && isInSubscription(id));
     const extra = res.ids.filter((id) => !isInCatalog(id));
+    const skippedFromSubscription = res.ids.filter((id) => isInCatalog(id) && !isInSubscription(id));
     const defaults = { contextWindow: DEFAULT_CONTEXT_WINDOW, maxTokens: DEFAULT_MAX_TOKENS };
     const built = buildModels(ids, isGo ? catalog.go : catalog.zen, provider.models, defaults);
     // Both routes intentionally carry no api / baseURL fields: omitting them
@@ -446,7 +488,7 @@ export class ModelSyncGateway extends TypertRemoteService {
     if (!equalModels(built.models, provider.models)) patch.models = built.models;
     return {
       routeKey,
-      result: { status: "ok", error: null, total: built.models.length, added: built.added, removed: built.removed, fallback: built.fallback, extra },
+      result: { status: "ok", error: null, total: built.models.length, added: built.added, removed: built.removed, fallback: built.fallback, extra, skippedFromSubscription },
       patch: Object.keys(patch).length > 0 ? patch : null,
     };
   }

@@ -57,7 +57,15 @@ Sync behavior:
   4. keeps the `opencode-go` provider in settings **lean** — no `api`, `baseURL`, or
      `models` fields — so llm-pi-ai dispatches per model from the catalog. Pinning a
      route-level `api` would squash every model onto one wire protocol.
-  New go models arrive with their correct protocol automatically.
+  5. writes only the models in the **current Go subscription** (the "The current list of
+     models" section of [console/go](https://opencode.ai/v2/docs/console/go)) into
+     settings — the key-less go endpoint returns the full pool of models opencode has
+     ever tested on it (previews, experiments, retired ids), and importing that verbatim
+     would flood Settings → Models with ids the subscription cannot serve; ids outside
+     the list are skipped and reported (`skippedFromSubscription`).
+  New go models arrive with their correct protocol automatically (the catalog rebuild
+  still covers the full official api.json; unsubscribed models just never reach the
+  settings list).
 - **zen-tier ("opencode" route) — catalog-driven, same as go**: the provider route lives
   under the pi-ai built-in provider id **`opencode`** (older configs called it `zen`; the
   sync accepts both names). `https://opencode.ai/zen/v1/models` is called **with your

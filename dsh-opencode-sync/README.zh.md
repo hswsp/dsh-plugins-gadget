@@ -46,7 +46,12 @@
   4. 保持 settings 里的 `opencode-go` **精简**——不写 `api` / `baseURL` / `models`，
      让 llm-pi-ai 从目录按模型分发协议。写 provider 级 `api` 会把所有模型压死在一个
      协议上。
-  之后 Go 套餐新增模型也会自动带上正确的协议。
+  5. 只把**当前 Go 订阅名单**（官网 [console/go](https://opencode.ai/v2/docs/console/go)
+     「The current list of models」）内的模型写进设置——go 接口本身返回 opencode 测试
+     过的全部模型池（预览 / 实验 / 已下架 id），照单全收会把订阅外模型灌进
+     Settings → Models；名单外模型会被跳过并在结果中提示（`skippedFromSubscription`）。
+  之后 Go 套餐新增模型也会自动带上正确的协议（目录重建仍按官方 api.json 全量，未订阅
+  模型只是不进设置列表）。
 - **zen（「opencode」路由）— 与 go 同一种方式，走内置目录**：该 provider 路由使用
   pi-ai 内置 provider id **`opencode`**（旧配置叫 `zen`，插件两个名字都兼容）。以
   `https://opencode.ai/zen/v1/models` **携带 workspace API Key** 调用，该接口只返回

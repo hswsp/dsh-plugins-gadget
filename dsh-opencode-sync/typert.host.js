@@ -14,6 +14,10 @@ const providerResult = z.object({
   // Live model ids the installed catalog cannot describe, so they were
   // skipped from the settings write (reported so new models are visible).
   extra: z.array(z.string()),
+  // Live ids inside the installed catalog but outside the current OpenCode Go
+  // subscription (the docs' "current list of models"); skipped so Settings →
+  // Models only shows models the go plan actually serves.
+  skippedFromSubscription: z.array(z.string()).optional(),
   // Optional account-availability summary carried by fetchAccount() in the
   // zen slot: { zen: n, go: n, zenError, goError }.
   account: z

@@ -46,6 +46,7 @@ window.__ModuleLoader__.load({
       none: "0",
       extra: "以下模型在官方列表中出现，但已安装的 catalog 尚未收录，已跳过：{ids}",
       extraHint: "这些模型需要更新 pi-ai（或等待内置 catalog 收录）后才能同步。",
+      skippedFromSubscription: "以下模型不在当前 Go 订阅名单中（官网 current list 未包含），已跳过：{ids}",
       fallback: "以下模型未在官方目录中找到容量，保留了原值：{ids}",
       skippedNotConfigured: "尚未在「设置 → 模型」中添加该提供商，请先添加后再同步。",
       noApiKey: "未找到可用的 workspace API Key（OPENCODE_WORKSPACE_API_KEY / OPENCODE_GO_API_KEY / ZEN_API_KEY）。zen 的启用模型在 opencode.ai 管理，只有带上该 Key，接口才会只返回你启用的模型；没有 Key 时不会同步 zen（避免误把全部模型写进来）。",
@@ -91,6 +92,7 @@ window.__ModuleLoader__.load({
       none: "0",
       extra: "These models are on the official list but the installed catalog does not describe them yet; skipped: {ids}",
       extraHint: "They can be synced after pi-ai (or its built-in catalog) is updated.",
+      skippedFromSubscription: "These models are not in the current Go subscription (the docs' current list); skipped: {ids}",
       fallback: "No official capacity found for these models; kept existing values: {ids}",
       skippedNotConfigured: "This provider is not added under Settings → Models yet. Add it first, then sync.",
       noApiKey: "No usable workspace API key found (OPENCODE_WORKSPACE_API_KEY / OPENCODE_GO_API_KEY / ZEN_API_KEY). Enabled zen models are managed at opencode.ai; the endpoint only returns your enabled set when called with that key, so zen is skipped without it (to avoid writing the full model list).",
@@ -171,6 +173,9 @@ window.__ModuleLoader__.load({
         if (result.extra && result.extra.length > 0) {
           lines.push(React.createElement("p", { key: "extra", style: styles.list }, t("extra").replace("{ids}", joinIds(result.extra, t))));
           lines.push(React.createElement("p", { key: "extraHint", style: styles.cardMeta }, t("extraHint")));
+        }
+        if (result.skippedFromSubscription && result.skippedFromSubscription.length > 0) {
+          lines.push(React.createElement("p", { key: "skippedSub", style: styles.cardMeta }, t("skippedFromSubscription").replace("{ids}", joinIds(result.skippedFromSubscription, t))));
         }
         if (added.length === 0 && removed.length === 0) lines.push(React.createElement("p", { key: "unchanged", style: styles.success }, t("unchanged")));
       } else if (result && result.status === "skipped") {
