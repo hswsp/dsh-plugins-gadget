@@ -1,0 +1,18 @@
+# dsh-bash-prefix bundle patch layer.
+#
+# A bundle is a package whose manifest declares
+#   "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+# and this file is that patch list: loader entries applied after every earlier
+# bundle layer. One row loads this package's main entry as the host half; the
+# `dsh.client` declaration in package.json makes the web app load ./client.js
+# as the browser half (the Settings → Bash 预处理 section).
+#
+# The host half needs no configuration: `static inject = ["shell", "settings"]`
+# on the default export declares what it reads.
+#
+# The same package loads unchanged under the dsh CLI and under DSH Desktop —
+# both resolve bundles through dsh-app-boot's bundle contract, and both ship
+# the shell and settings services this plugin injects.
+- insert:
+    - id: bash-prefix
+      name: dsh-bash-prefix

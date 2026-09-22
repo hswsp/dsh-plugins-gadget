@@ -30,7 +30,8 @@ import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { OPENCODE_GO_MODELS } from "@earendil-works/pi-ai/providers/opencode-go.models";
 import { OPENCODE_MODELS } from "@earendil-works/pi-ai/providers/opencode.models";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { readFile, writeFile } from "node:fs/promises";
 import { statSync } from "node:fs";
 
@@ -294,35 +295,58 @@ async function buildOfficialGoCatalog(timeoutMs) {
   }
 }
 
+const CATALOG_REL = join("dist", "providers", "data", "opencode-go.json");
+
 /**
- * Locate every real copy of the pi-ai opencode-go catalog JSON that dsh may
- * load. The candidates mirror the layouts a DeepSeek Harness install uses:
- *   1. the dsh runtime bundle's own node_modules — where the process that
- *      boots the web app resolves @earendil-works/pi-ai from, and where the
- *      profile's node_modules symlinks point to:
- *      <prefix>/lib/node_modules/@deepseek-ai/dsh/node_modules/...;
- *   2. the pnpm store / checkout node_modules layout (<prefix>/node_modules);
- *   3. legacy home layout (~/DeepseekHarness/node_modules).
- * Paths that do not exist on this machine are skipped, so a fresh or
- * differently-laid-out install never reports phantom write failures.
- * @returns array of absolute paths to existing opencode-go.json files.
+ * The real path of the pi-ai catalog this process actually loads.
+ *
+ * Resolving beats guessing: the same package is imported at the top of this
+ * file, so `import.meta.resolve` yields exactly the copy Node would read. That
+ * holds wherever the host keeps its runtime — the dsh CLI's own install, a
+ * checkout, or the packaged Electron app, whose modules live inside
+ * `/Applications/DSH Desktop.app` and match none of the old layout guesses.
+ * The candidate list remains only as a fallback for hosts without the
+ * resolve hook.
+ *
+ * @returns {Promise<string[]>} absolute paths of existing opencode-go.json files.
  */
-function catalogFileCandidates() {
-  const rel = join("node_modules", "@earendil-works", "pi-ai", "dist", "providers", "data", "opencode-go.json");
-  const prefix = join(process.env.DSH_HOME || join(homedir(), ".dsh"), "..");
-  const out = [
-    join(prefix, "lib", "node_modules", "@deepseek-ai", "dsh", rel),
-    join(prefix, "node_modules", rel),
-    join(homedir(), "DeepseekHarness", rel),
-  ];
-  // Deduplicate and keep only paths that actually exist.
+async function catalogFileCandidates() {
+  const dir = dirname(fileURLToPath(import.meta.url));
+  const out = [];
+
+  // 1. The catalog belonging to the pi-ai copy this process imports.
+  try {
+    const entry = import.meta.resolve("@earendil-works/pi-ai/providers/opencode-go.models");
+    out.push(join(dirname(fileURLToPath(entry)), "data", "opencode-go.json"));
+  } catch {
+    /* resolve hook unavailable on this host — fall through to the layout hints */
+  }
+
+  // 2. The package root as Node resolves it from this file, which covers
+  //    hosts whose export map hides the provider subpath.
+  try {
+    const pkg = import.meta.resolve("@earendil-works/pi-ai");
+    out.push(join(dirname(fileURLToPath(pkg)), CATALOG_REL));
+  } catch {
+    /* not resolvable from here */
+  }
+
+  // 3. Layout hints, for installs where resolution stops short of the data file.
+  const home = process.env.DSH_HOME || join(homedir(), ".dsh");
+  out.push(
+    join(home, "profiles", "node_modules", "@earendil-works", "pi-ai", CATALOG_REL),
+    join(home, "..", "node_modules", "@earendil-works", "pi-ai", CATALOG_REL),
+  );
+
+  // Keep only paths that actually exist, in first-seen order.
   const seen = new Set();
   const existing = [];
   for (const p of out) {
-    if (seen.has(p)) continue;
-    seen.add(p);
+    const abs = resolve(p);
+    if (seen.has(abs)) continue;
+    seen.add(abs);
     try {
-      if (statSync(p).isFile()) existing.push(p);
+      if (statSync(abs).isFile()) existing.push(abs);
     } catch {
       /* path absent — skip */
     }

@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-sync",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "DeepSeek Harness plugin: one-click sync of the OpenCode Go and OpenCode Zen model lists into Settings → Models",
   "license": "MIT",
   "keywords": [
@@ -19,6 +19,7 @@
     "index.js",
     "client.js",
     "typert.host.js",
+    "cordis.patch.yml",
     "README.md",
     "README.zh.md",
     "LICENSE"
@@ -30,6 +31,9 @@
     "./package.json": "./package.json"
   },
   "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "inject": [
         "@deepseek-ai/dsh-api-remotes",
@@ -38,6 +42,12 @@
         "@deepseek-ai/dsh-client-locale"
       ],
       "platform": "web"
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.1.5-rc.1": "compatible",
+        "0.1.5-rc.2": "compatible"
+      }
     }
   },
   "dependencies": {
@@ -49,6 +59,7 @@
     "@deepseek-ai/schemastery": "^3.18.1",
     "@deepseek-ai/dsh-typert-protocol": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-credentials": "^0.1.0-rc.6",
-    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6"
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
+    "@earendil-works/pi-ai": "*"
   }
 }

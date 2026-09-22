@@ -1,0 +1,23 @@
+# dsh-model-sync bundle patch layer.
+#
+# A bundle is a package whose manifest declares
+#   "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
+# and this file is that patch list: loader entries applied after every earlier
+# bundle layer. One row loads this package's main entry as the host half; the
+# `dsh.client` declaration in package.json makes the web app load ./client.js
+# as the browser half (the Settings → Models "模型同步" page).
+#
+# Row config (all optional; the defaults match the public OpenCode endpoints):
+#   goUrl      OpenCode Go model list endpoint.
+#   zenUrl     OpenCode Zen model list endpoint (queried with the workspace key,
+#              so it returns only the models you have enabled).
+#   modelsApi  Official model metadata (models.dev) endpoint.
+#   cachePath  The local OpenCode catalog used to fill in per-model capacity.
+#   timeoutMs  Per-request timeout.
+#
+# The same package loads unchanged under the dsh CLI and under DSH Desktop —
+# both resolve bundles through dsh-app-boot's bundle contract, and both ship
+# the credentials and settings services this plugin injects.
+- insert:
+    - id: model-sync
+      name: dsh-model-sync
