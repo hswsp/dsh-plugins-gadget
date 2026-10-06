@@ -109,7 +109,17 @@ window.__ModuleLoader__.load({
 
     // Client-side Remote contribution. The result codec is a pass-through
     // parser: the Host already validates the business result against its own
-    // zod schema before it crosses the wire.
+    // zod schema before it crosses the wire. The parameter descriptors must
+    // mirror the Host manifest so positional call args map onto the wire.
+    const API_KEY_CODEC = {
+      mode: "strict",
+      typeSymbol: "dsh-model-sync#ModelSyncApiKey",
+      schema: { parse(value) { return value; } },
+      create: () => ({ parse(value) { return value; } }),
+    };
+    const METHOD_PARAMETERS = {
+      setApiKey: [{ name: "key", wire: "key", source: "json", codec: API_KEY_CODEC }],
+    };
     const TYPERT_REMOTE = {
       package: "dsh-model-sync",
       descriptors: ["sync", "syncGo", "syncGoCatalog", "syncZen", "setApiKey", "fetchAccount"].map((method) => ({
@@ -118,10 +128,11 @@ window.__ModuleLoader__.load({
         namespace: "modelSync",
         method,
         invocation: { kind: "direct" },
-        parameters: [],
+        parameters: METHOD_PARAMETERS[method] ?? [],
         result: {
           mode: "strict",
           typeSymbol: "dsh-model-sync#ModelSyncResult",
+          schema: { parse(value) { return value; } },
           create: () => ({ parse(value) { return value; } }),
         },
       })),

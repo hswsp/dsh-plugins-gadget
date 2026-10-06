@@ -20,7 +20,7 @@ const payloadParam = {
   name: "payload",
   wire: "payload",
   source: "json",
-  codec: { mode: "strict", typeSymbol: "dsh-bash-prefix#BashPrefixPayload", create: () => payloadSchema },
+  codec: { mode: "strict", typeSymbol: "dsh-bash-prefix#BashPrefixPayload", schema: payloadSchema, create: () => payloadSchema },
 };
 
 const invocation = (method, parameters) => ({
@@ -33,6 +33,7 @@ const invocation = (method, parameters) => ({
   result: {
     mode: "strict",
     typeSymbol: "dsh-bash-prefix#BashPrefixState",
+    schema: stateSchema,
     create: () => stateSchema,
   },
 });

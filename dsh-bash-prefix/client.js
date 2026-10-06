@@ -68,6 +68,7 @@ window.__ModuleLoader__.load({
           result: {
             mode: "strict",
             typeSymbol: "dsh-bash-prefix#BashPrefixState",
+            schema: { parse(value) { return value; } },
             create: () => ({ parse(value) { return value; } }),
           },
         },
@@ -81,11 +82,12 @@ window.__ModuleLoader__.load({
             name: "payload",
             wire: "payload",
             source: "json",
-            codec: { mode: "strict", typeSymbol: "dsh-bash-prefix#BashPrefixPayload", create: () => ({ parse(value) { return value; } }) },
+            codec: { mode: "strict", typeSymbol: "dsh-bash-prefix#BashPrefixPayload", schema: { parse(value) { return value; } }, create: () => ({ parse(value) { return value; } }) },
           }],
           result: {
             mode: "strict",
             typeSymbol: "dsh-bash-prefix#BashPrefixState",
+            schema: { parse(value) { return value; } },
             create: () => ({ parse(value) { return value; } }),
           },
         },

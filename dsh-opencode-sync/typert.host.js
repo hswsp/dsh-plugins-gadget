@@ -38,16 +38,24 @@ const resultSchema = z.object({
   zen: providerResult.nullable(),
 });
 
-const invocation = (method) => ({
+const apiKeyParam = {
+  name: "key",
+  wire: "key",
+  source: "json",
+  codec: { mode: "strict", typeSymbol: "dsh-model-sync#ModelSyncApiKey", schema: z.string(), create: () => z.string() },
+};
+
+const invocation = (method, parameters = []) => ({
   id: `dsh-model-sync#modelSync/${method}`,
   service: "modelSync",
   namespace: "modelSync",
   method,
   invocation: { kind: "direct" },
-  parameters: [],
+  parameters,
   result: {
     mode: "strict",
     typeSymbol: "dsh-model-sync#ModelSyncResult",
+    schema: resultSchema,
     create: () => resultSchema,
   },
 });
@@ -61,7 +69,7 @@ export const TYPERT = {
     invocation("syncGo"),
     invocation("syncZen"),
     invocation("syncGoCatalog"),
-    invocation("setApiKey"),
+    invocation("setApiKey", [apiKeyParam]),
     invocation("fetchAccount"),
   ],
   model: { services: [], events: [], objects: [] },
