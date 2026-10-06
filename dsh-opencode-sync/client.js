@@ -122,7 +122,7 @@ window.__ModuleLoader__.load({
         result: {
           mode: "strict",
           typeSymbol: "dsh-model-sync#ModelSyncResult",
-          schema: { parse(value) { return value; } },
+          create: () => ({ parse(value) { return value; } }),
         },
       })),
     };

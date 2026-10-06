@@ -48,7 +48,7 @@ const invocation = (method) => ({
   result: {
     mode: "strict",
     typeSymbol: "dsh-model-sync#ModelSyncResult",
-    schema: resultSchema,
+    create: () => resultSchema,
   },
 });
 
