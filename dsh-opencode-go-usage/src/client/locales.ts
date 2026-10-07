@@ -1,0 +1,70 @@
+/**
+ * dsh-ocgo-usage locale dictionaries (zh/en).
+ * @module dsh-ocgo-usage/client/locales
+ */
+
+/** Dictionary namespace this package registers. */
+export const NS = 'ocgo'
+
+/** Chinese copy. */
+export const zh = {
+  'ocgo.unavailable': '用量不可用',
+  'ocgo.error': '查询失败：{code}',
+  'ocgo.noconfig': '未配置：请在 Set 里填写 workspace id 与控制台 token（或 API key）',
+  'ocgo.refresh': '刷新',
+  'ocgo.fetchedAt': 'upd {time}',
+  'ocgo.expand': '展开用量详情',
+  'ocgo.collapse': '收起',
+  'ocgo.sep': '·',
+  'ocgo.set': '设置',
+  'ocgo.save': '保存',
+  'ocgo.workspaceID': 'workspace id',
+  'ocgo.token': '控制台 token',
+  'ocgo.apiKey': 'API key',
+  'ocgo.setHint': '点击外部或按 Esc 保存',
+  'ocgo.budget': '月度预算',
+  'ocgo.spentOf': '已用 {spent} / {limit}',
+  'ocgo.resetsIn': '剩余 {duration}',
+  'ocgo.exceeded': '预算超支',
+  'ocgo.rateLimited': '已限流',
+  'ocgo.requests': '请求',
+  'ocgo.requestsChip': 'req',
+  'ocgo.inputTokens': '输入 tokens',
+  'ocgo.outputTokens': '输出 tokens',
+  'ocgo.cacheTokens': '缓存 tokens',
+  'ocgo.cost': '费用',
+  'ocgo.balance': '余额',
+} as const
+
+/** English copy. */
+export const en = {
+  'ocgo.unavailable': 'usage unavailable',
+  'ocgo.error': 'Query failed: {code}',
+  'ocgo.noconfig': 'Not configured: set workspace id and a console token (or API key) in Set',
+  'ocgo.refresh': 'Refresh',
+  'ocgo.fetchedAt': 'upd {time}',
+  'ocgo.expand': 'Show usage details',
+  'ocgo.collapse': 'Collapse',
+  'ocgo.sep': '·',
+  'ocgo.set': 'Set',
+  'ocgo.save': 'Save',
+  'ocgo.workspaceID': 'workspace id',
+  'ocgo.token': 'console token',
+  'ocgo.apiKey': 'API key',
+  'ocgo.setHint': 'click outside or press Esc to save',
+  'ocgo.budget': 'Monthly budget',
+  'ocgo.spentOf': '{spent} / {limit} used',
+  'ocgo.resetsIn': 'resets in {duration}',
+  'ocgo.exceeded': 'Budget exceeded',
+  'ocgo.rateLimited': 'rate-limited',
+  'ocgo.requests': 'Requests',
+  'ocgo.requestsChip': 'req',
+  'ocgo.inputTokens': 'Input tokens',
+  'ocgo.outputTokens': 'Output tokens',
+  'ocgo.cacheTokens': 'Cache tokens',
+  'ocgo.cost': 'Cost',
+  'ocgo.balance': 'Balance',
+} as const
+
+/** Key type of the dictionary (for the LocaleNamespaceMap merge). */
+export type OcgoKey = keyof typeof zh

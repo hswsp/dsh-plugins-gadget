@@ -1,0 +1,221 @@
+/* dsh-ocgo-usage composer tool-row chip styles. */
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 6px 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary, #0f1115);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background-color 0.12s ease;
+}
+
+.chip:hover,
+.chipOpen {
+  background: var(--dsw-alias-interactive-bg-hover, rgba(38, 49, 72, 0.06));
+}
+
+.seg {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.segSep {
+  opacity: 0.45;
+}
+
+.logo {
+  display: inline-flex;
+  flex: none;
+}
+
+.chevron {
+  display: inline-flex;
+  flex: none;
+  color: var(--dsw-alias-label-caption, #81858c);
+  transition: transform 0.12s ease;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.segWarn50 {
+  color: var(--dsw-static-amber-400, #f7ad31);
+}
+
+.segWarn60 {
+  color: var(--dsw-static-amber-500, #f59e0b);
+}
+
+.segWarn70 {
+  color: var(--dsw-static-amber-600, #dd8629);
+}
+
+.segErr80 {
+  color: var(--dsw-alias-state-error-primary, #dc2626);
+}
+
+.segCrit90 {
+  color: var(--dsw-alias-state-error-primary, #dc2626);
+  font-weight: 600;
+}
+
+.details {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+  padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
+  border-radius: 8px;
+  background: var(--dsw-specific-menu, #ffffff);
+  color: var(--dsw-alias-label-primary, #0f1115);
+  box-shadow: var(--dsw-shadow-lv3, 0 4px 12px rgba(0, 0, 0, 0.08));
+  font-size: 12px;
+}
+
+.window {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.windowLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-secondary, #61666b);
+  opacity: 0.9;
+}
+
+.windowValue {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.windowReset {
+  opacity: 0.65;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 1px solid var(--dsw-alias-border-l1, rgba(0, 0, 0, 0.04));
+  padding-top: 6px;
+  font-size: 11px;
+}
+
+/* The right cluster of the footer: `refresh upd HH:MM`, right-aligned. */
+.footRight {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.setBtn {
+  border: 0;
+  background: 0 0;
+  color: var(--dsw-alias-state-business-primary, #3964fe);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.setBtn:hover {
+  text-decoration: underline;
+}
+
+.fetchedAt {
+  opacity: 0.6;
+}
+
+.refreshBtn {
+  border: 0;
+  background: 0 0;
+  color: var(--dsw-alias-state-business-primary, #3964fe);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.refreshBtn:hover {
+  text-decoration: underline;
+}
+
+/* The Set editor panel. */
+.setPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 260px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.fieldLabel {
+  color: var(--dsw-alias-label-secondary, #61666b);
+  opacity: 0.75;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fieldInput {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1));
+  background: var(--dsw-alias-bg-layer-1, #ffffff);
+  color: var(--dsw-alias-label-primary, #0f1115);
+  border-radius: 6px;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.fieldInput:focus {
+  border-color: var(--dsw-alias-state-business-primary, #3964fe);
+}
+
+.setHint {
+  opacity: 0.55;
+  font-size: 11px;
+}
+
+.errorText {
+  color: var(--dsw-alias-state-error-primary, #dc2626);
+  font-size: 11px;
+  max-width: 240px;
+  white-space: normal;
+}

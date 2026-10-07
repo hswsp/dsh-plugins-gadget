@@ -16,6 +16,7 @@
 | -------------------- | ----------------- | ------------------------------------------------ |
 | [`dsh-opencode-sync/`](dsh-opencode-sync/) | `dsh-model-sync` | 一键同步 OpenCode Go 与 OpenCode Zen 模型列表到「设置 → 模型」 |
 | [`dsh-bash-prefix/`](dsh-bash-prefix/) | `dsh-bash-prefix` | 每次 bash 前自动执行你自定义的前置命令（开关 + 文本框），用于一键开启 VPN 代理 |
+| [`dsh-opencode-go-usage/`](dsh-opencode-go-usage/) | `dsh-ocgo-usage` | 输入框 dock 上的 OpenCode Go 用量读数（5h / 每周 / 每月 + 重置倒计时）；上游 [`v587d/dsh-opencode-go-usage`](https://github.com/v587d/dsh-opencode-go-usage) 的适配 fork，修好 dsh ≥ 0.1.2-rc.1 上 chip 不再显示的问题 |
 
 > 更多插件持续添加中。
 
