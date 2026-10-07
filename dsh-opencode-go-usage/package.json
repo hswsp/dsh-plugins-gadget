@@ -1,7 +1,7 @@
 {
   "name": "dsh-ocgo-usage",
-  "description": "OpenCode Go usage readout for the dsh web GUI: cumulative totals, monthly budget window and prepaid balance in the composer dock. (gadget fork, adapted to the opencode console JSON API — no SSR scraping, works with a console session token or an API key)",
-  "version": "0.2.0",
+  "description": "OpenCode Go usage readout for the dsh web GUI: the 5h rolling / weekly / monthly plan windows (API-key only) plus console totals as fallback. (gadget fork: zen/go/v1/usage path, no cookie, no SSR scraping)",
+  "version": "0.3.0",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "engines": {

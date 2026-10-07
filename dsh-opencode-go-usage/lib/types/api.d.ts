@@ -25,10 +25,17 @@ export declare class UsageError extends Error {
     constructor(message: string, code: string);
 }
 /**
- * Fetch the full usage read: totals always; the budget window and balance
- * when a console session token is configured (the API key alone cannot read
- * them). Individual optional reads never fail the whole snapshot.
- * @throws {UsageError} when nothing usable is configured or totals fail.
+ * Fetch the full usage read. Every available surface is fetched and merged:
+ *
+ *  1. API-key path (`zen/go/v1/usage`): the three plan windows
+ *     (5h rolling / weekly / monthly). Required when an API key is set.
+ *  2. Console path: cumulative totals (works with the API key or the session
+ *     token); the monthly budget window and balance need the session token.
+ *     Optional reads never fail the whole snapshot once the primary data
+ *     (windows or totals) has been fetched.
+ *
+ * @throws {UsageError} when nothing usable is configured, or when a primary
+ * fetch fails.
  */
 export declare function fetchUsage(cfg: OcgoConfig): Promise<NormalizedUsage>;
 //# sourceMappingURL=api.d.ts.map

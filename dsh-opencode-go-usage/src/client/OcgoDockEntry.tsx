@@ -1,19 +1,21 @@
 /**
  * The composer tool-row entry: the OpenCode Go usage readout, mounted in the
  * composer tool row (`conversation.input.right`) next to the model selector.
- * The chip polls the host `/api/ocgo-usage` snapshot (cumulative usage totals
- * from the console JSON API, plus the org monthly budget window and prepaid
- * balance when a console session token is configured); clicking reveals the
- * detail panel, a Set editor (masked workspace/token/api-key) and a manual
- * refresh. In the error state, clicking the chip opens the Set editor
- * directly so a stale credential can be replaced in place.
+ * The chip polls the host `/api/ocgo-usage` snapshot and renders:
+ *  - the three plan windows (5h rolling / weekly / monthly) when an API key
+ *    is configured (`zen/go/v1/usage`), or
+ *  - the console metrics (cumulative totals + monthly budget + balance) when
+ *    only a session token is configured.
+ * Clicking reveals a detail panel, a Set editor (masked workspace/token/api
+ * key) and a manual refresh. In the error state, clicking the chip opens the
+ * Set editor directly so a stale credential can be replaced in place.
  * @module dsh-ocgo-usage/client/OcgoDockEntry
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { isOpenCodeGo } from '../provider.ts'
-import type { BillingInfo, BudgetWindow, MaskedConfigView, OcgoUsageView, UsageTotals } from '../types.ts'
+import type { BillingInfo, BudgetWindow, MaskedConfigView, OcgoUsageView, UsageTotals, UsageWindow, UsageWindowKind } from '../types.ts'
 import { NS, type OcgoKey } from './locales.ts'
 import css from './ocgo.module.css'
 
@@ -52,6 +54,20 @@ export type OcgoDockEntryProps =
   PropsRuntime<'conversation.input.right'>
   & PropsLocale<typeof NS>
   & { dockSessionId?: string | undefined; provider?: () => Promise<string | undefined> }
+
+/** Short window label: 5h / wk / mo. */
+const WINDOW_LABELS: Record<UsageWindowKind, string> = {
+  rolling: '5h',
+  weekly: 'wk',
+  monthly: 'mo',
+}
+
+/** Full window label key for the detail panel. */
+const WINDOW_TITLE_KEYS: Record<UsageWindowKind, OcgoKey> = {
+  rolling: 'ocgo.rolling',
+  weekly: 'ocgo.weekly',
+  monthly: 'ocgo.monthly',
+}
 
 /**
  * Format a duration (seconds) compactly: 45s / 23m / 5h 23m / 4d 6h.
@@ -95,15 +111,20 @@ export function formatCount(raw: string | undefined): string {
   return String(value)
 }
 
-/** The severity class of the budget window (muted → escalating warn → err). */
+/** The severity class of one window/budget (muted → escalating warn → err). */
+function severityClass(percent: number, rateLimited = false): string | undefined {
+  if (rateLimited || percent >= 90) return css.segCrit90
+  if (percent >= 80) return css.segErr80
+  if (percent >= 70) return css.segWarn70
+  if (percent >= 60) return css.segWarn60
+  if (percent >= 50) return css.segWarn50
+  return undefined
+}
+
+/** The severity class of the budget window (windows additionally honor status). */
 function budgetSeverity(budget: BudgetWindow | undefined): string | undefined {
   if (budget === undefined) return undefined
-  if (budget.exceeded || budget.percent >= 90) return css.segCrit90
-  if (budget.percent >= 80) return css.segErr80
-  if (budget.percent >= 70) return css.segWarn70
-  if (budget.percent >= 60) return css.segWarn60
-  if (budget.percent >= 50) return css.segWarn50
-  return undefined
+  return severityClass(budget.percent, budget.exceeded)
 }
 
 /** Detect dark mode via DSH body attribute. */
@@ -154,7 +175,7 @@ function maskedText(secret: { set: boolean; tail: string } | undefined): string 
   return `${MASK}${secret.tail}`
 }
 
-/** One compact segment: `· 预算 0%` (or a plain metric). */
+/** One compact segment: `· 5h 23%` (or a plain metric). */
 function Seg(props: { sep: string; className?: string; children: React.ReactNode }): React.ReactElement {
   const { sep, className, children } = props
   return (
@@ -162,6 +183,16 @@ function Seg(props: { sep: string; className?: string; children: React.ReactNode
       <span className={css.segSep}>{sep}</span>
       <span className={className ?? undefined}>{children}</span>
     </span>
+  )
+}
+
+/** One plan-window segment on the chip: `· 5h 23%`. */
+function WindowSegment(props: { window: UsageWindow; sep: string }): React.ReactElement {
+  const { window, sep } = props
+  return (
+    <Seg sep={sep} className={severityClass(window.percent, window.status !== 'ok')}>
+      {WINDOW_LABELS[window.kind]} {window.percent}%
+    </Seg>
   )
 }
 
@@ -180,15 +211,15 @@ function MetricRow(props: { label: string; value: string; sub?: string; valueCla
 }
 
 /**
- * The OpenCode Go usage chip: polls the host snapshot, renders the budget
- * window + key totals inline, and expands into a detail panel on click.
+ * The OpenCode Go usage chip: polls the host snapshot, renders the three plan
+ * windows (or the console metrics), and expands into a detail panel on click.
  * @param props - the composed dock entry props.
  */
 export function OcgoDockEntry(props: OcgoDockEntryProps): React.ReactElement | null {
   const [view, setView] = useState<OcgoUsageView | null>(null)
   const [open, setOpen] = useState(false)
   const [visible, setVisible] = useState(true)
-  // Panel mode: 'view' = metrics + footer; 'set' = workspace/token/api-key editor.
+  // Panel mode: 'view' = windows/metrics + footer; 'set' = credential editor.
   const [mode, setMode] = useState<'view' | 'set'>('view')
   const [config, setConfig] = useState<MaskedConfigView | null>(null)
   const [wsDraft, setWsDraft] = useState('')
@@ -336,6 +367,54 @@ export function OcgoDockEntry(props: OcgoDockEntryProps): React.ReactElement | n
   const t = props.t
   const sep = ` ${t('ocgo.sep')} `
 
+  /** The credential editor panel (Set): workspace + API key (+ optional token). */
+  const setEditor = (): React.ReactElement => (
+    <span className={css.setPanel}>
+      <label className={css.field}>
+        <span className={css.fieldLabel}>{t('ocgo.workspaceID')}</span>
+        <input
+          className={css.fieldInput}
+          value={wsDraft}
+          placeholder="wrk_…"
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => { setWsDraft(e.target.value) }}
+          onFocus={(e) => { if (e.target.value === maskedText(config?.workspaceID)) e.target.select() }}
+        />
+      </label>
+      <label className={css.field}>
+        <span className={css.fieldLabel}>{t('ocgo.apiKey')}</span>
+        <input
+          className={css.fieldInput}
+          value={apiKeyDraft}
+          placeholder="open-code-go API key…"
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => { setApiKeyDraft(e.target.value) }}
+          onFocus={(e) => { if (e.target.value === maskedText(config?.apiKey)) e.target.select() }}
+        />
+      </label>
+      <label className={css.field}>
+        <span className={css.fieldLabel}>{t('ocgo.token')}</span>
+        <input
+          className={css.fieldInput}
+          value={tokenDraft}
+          placeholder="st_…（可选，无 key 时）"
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(e) => { setTokenDraft(e.target.value) }}
+          onFocus={(e) => { if (e.target.value === maskedText(config?.token)) e.target.select() }}
+        />
+      </label>
+      <span className={css.foot}>
+        <span className={css.setHint}>{t('ocgo.setHint')}</span>
+        <button type="button" className={css.refreshBtn} onClick={closePanel}>
+          {t('ocgo.save')}
+        </button>
+      </span>
+    </span>
+  )
+
   // Hidden whenever the live provider is not opencode-go — the pi-ocgo-usage
   // behaviour: switching to e.g. DeepSeek official hides the chip within one
   // poll interval, so no other provider's user sees OpenCode Go numbers.
@@ -361,50 +440,7 @@ export function OcgoDockEntry(props: OcgoDockEntryProps): React.ReactElement | n
         </button>
         {open && (
           <span className={css.details}>
-            <span className={css.setPanel}>
-              <label className={css.field}>
-                <span className={css.fieldLabel}>{t('ocgo.workspaceID')}</span>
-                <input
-                  className={css.fieldInput}
-                  value={wsDraft}
-                  placeholder="wrk_…"
-                  spellCheck={false}
-                  autoComplete="off"
-                  onChange={(e) => { setWsDraft(e.target.value) }}
-                  onFocus={(e) => { if (e.target.value === maskedText(config?.workspaceID)) e.target.select() }}
-                />
-              </label>
-              <label className={css.field}>
-                <span className={css.fieldLabel}>{t('ocgo.token')}</span>
-                <input
-                  className={css.fieldInput}
-                  value={tokenDraft}
-                  placeholder="st_…"
-                  spellCheck={false}
-                  autoComplete="off"
-                  onChange={(e) => { setTokenDraft(e.target.value) }}
-                  onFocus={(e) => { if (e.target.value === maskedText(config?.token)) e.target.select() }}
-                />
-              </label>
-              <label className={css.field}>
-                <span className={css.fieldLabel}>{t('ocgo.apiKey')}</span>
-                <input
-                  className={css.fieldInput}
-                  value={apiKeyDraft}
-                  placeholder="（可选）仅累计用量"
-                  spellCheck={false}
-                  autoComplete="off"
-                  onChange={(e) => { setApiKeyDraft(e.target.value) }}
-                  onFocus={(e) => { if (e.target.value === maskedText(config?.apiKey)) e.target.select() }}
-                />
-              </label>
-              <span className={css.foot}>
-                <span className={css.setHint}>{t('ocgo.setHint')}</span>
-                <button type="button" className={css.refreshBtn} onClick={closePanel}>
-                  {t('ocgo.save')}
-                </button>
-              </span>
-            </span>
+            <span className={css.setPanel}>{setEditor()}</span>
           </span>
         )}
       </span>
@@ -413,12 +449,17 @@ export function OcgoDockEntry(props: OcgoDockEntryProps): React.ReactElement | n
 
   // TS: after the error early-return, `view` is a non-null success snapshot.
   const snapshot = view as OcgoUsageView
+  const windows: UsageWindow[] = [
+    snapshot.rolling,
+    snapshot.weekly,
+    snapshot.monthly,
+  ].filter((w): w is UsageWindow => w !== undefined)
   const budget = snapshot.budget
   const usage: UsageTotals | undefined = snapshot.usage
   const billing: BillingInfo | undefined = snapshot.billing
 
   // Nothing usable (e.g. brand-new account): show unavailable, refreshable.
-  if (budget === undefined && usage === undefined) {
+  if (windows.length === 0 && budget === undefined && usage === undefined) {
     return (
       <button
         type="button"
@@ -432,12 +473,13 @@ export function OcgoDockEntry(props: OcgoDockEntryProps): React.ReactElement | n
     )
   }
 
-  // Compact chip: budget % (+ cost when no budget) + freshness.
-  const budgetCls = budgetSeverity(budget)
+  // Compact chip. Windows when present; otherwise budget/usage metrics.
   const chipSegs: React.ReactNode[] = []
-  if (budget !== undefined) {
+  if (windows.length > 0) {
+    for (const w of windows) chipSegs.push(<WindowSegment key={w.kind} window={w} sep={sep} />)
+  } else if (budget !== undefined) {
     chipSegs.push(
-      <Seg key="budget" sep={sep} className={budgetCls}>
+      <Seg key="budget" sep={sep} className={budgetSeverity(budget)}>
         {t('ocgo.budget')} {budget.percent}%
       </Seg>,
     )
@@ -474,53 +516,17 @@ export function OcgoDockEntry(props: OcgoDockEntryProps): React.ReactElement | n
       </button>
       {open && (
         <span className={css.details}>
-          {mode === 'set' ? (
-            <span className={css.setPanel}>
-              <label className={css.field}>
-                <span className={css.fieldLabel}>{t('ocgo.workspaceID')}</span>
-                <input
-                  className={css.fieldInput}
-                  value={wsDraft}
-                  placeholder="wrk_…"
-                  spellCheck={false}
-                  autoComplete="off"
-                  onChange={(e) => { setWsDraft(e.target.value) }}
-                  onFocus={(e) => { if (e.target.value === maskedText(config?.workspaceID)) e.target.select() }}
-                />
-              </label>
-              <label className={css.field}>
-                <span className={css.fieldLabel}>{t('ocgo.token')}</span>
-                <input
-                  className={css.fieldInput}
-                  value={tokenDraft}
-                  placeholder="st_…"
-                  spellCheck={false}
-                  autoComplete="off"
-                  onChange={(e) => { setTokenDraft(e.target.value) }}
-                  onFocus={(e) => { if (e.target.value === maskedText(config?.token)) e.target.select() }}
-                />
-              </label>
-              <label className={css.field}>
-                <span className={css.fieldLabel}>{t('ocgo.apiKey')}</span>
-                <input
-                  className={css.fieldInput}
-                  value={apiKeyDraft}
-                  placeholder="（可选）仅累计用量"
-                  spellCheck={false}
-                  autoComplete="off"
-                  onChange={(e) => { setApiKeyDraft(e.target.value) }}
-                  onFocus={(e) => { if (e.target.value === maskedText(config?.apiKey)) e.target.select() }}
-                />
-              </label>
-              <span className={css.foot}>
-                <span className={css.setHint}>{t('ocgo.setHint')}</span>
-                <button type="button" className={css.refreshBtn} onClick={closePanel}>
-                  {t('ocgo.save')}
-                </button>
-              </span>
-            </span>
-          ) : (
+          {mode === 'set' ? setEditor() : (
             <>
+              {windows.map((w) => (
+                <MetricRow
+                  key={w.kind}
+                  label={w.status !== 'ok' ? t('ocgo.rateLimited') : t(WINDOW_TITLE_KEYS[w.kind])}
+                  value={`${w.percent}%`}
+                  sub={t('ocgo.resetsIn', { duration: formatDuration(w.resetInSec) })}
+                  valueClass={severityClass(w.percent, w.status !== 'ok')}
+                />
+              ))}
               {budget !== undefined && (
                 <MetricRow
                   label={budget.exceeded ? t('ocgo.exceeded') : t('ocgo.budget')}

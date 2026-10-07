@@ -65,12 +65,14 @@ window.__ModuleLoader__.load({
 		/**
 		* The composer tool-row entry: the OpenCode Go usage readout, mounted in the
 		* composer tool row (`conversation.input.right`) next to the model selector.
-		* The chip polls the host `/api/ocgo-usage` snapshot (cumulative usage totals
-		* from the console JSON API, plus the org monthly budget window and prepaid
-		* balance when a console session token is configured); clicking reveals the
-		* detail panel, a Set editor (masked workspace/token/api-key) and a manual
-		* refresh. In the error state, clicking the chip opens the Set editor
-		* directly so a stale credential can be replaced in place.
+		* The chip polls the host `/api/ocgo-usage` snapshot and renders:
+		*  - the three plan windows (5h rolling / weekly / monthly) when an API key
+		*    is configured (`zen/go/v1/usage`), or
+		*  - the console metrics (cumulative totals + monthly budget + balance) when
+		*    only a session token is configured.
+		* Clicking reveals a detail panel, a Set editor (masked workspace/token/api
+		* key) and a manual refresh. In the error state, clicking the chip opens the
+		* Set editor directly so a stale credential can be replaced in place.
 		* @module dsh-ocgo-usage/client/OcgoDockEntry
 		*/
 		/** Poll interval for the host snapshot and the live model provider. */
@@ -93,6 +95,18 @@ window.__ModuleLoader__.load({
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(partial)
 			})
+		};
+		/** Short window label: 5h / wk / mo. */
+		const WINDOW_LABELS = {
+			rolling: "5h",
+			weekly: "wk",
+			monthly: "mo"
+		};
+		/** Full window label key for the detail panel. */
+		const WINDOW_TITLE_KEYS = {
+			rolling: "ocgo.rolling",
+			weekly: "ocgo.weekly",
+			monthly: "ocgo.monthly"
 		};
 		/**
 		* Format a duration (seconds) compactly: 45s / 23m / 5h 23m / 4d 6h.
@@ -130,14 +144,18 @@ window.__ModuleLoader__.load({
 			if (value >= 1e3) return `${(value / 1e3).toFixed(1)}k`;
 			return String(value);
 		}
-		/** The severity class of the budget window (muted → escalating warn → err). */
+		/** The severity class of one window/budget (muted → escalating warn → err). */
+		function severityClass(percent, rateLimited = false) {
+			if (rateLimited || percent >= 90) return ocgo_module_css_default.segCrit90;
+			if (percent >= 80) return ocgo_module_css_default.segErr80;
+			if (percent >= 70) return ocgo_module_css_default.segWarn70;
+			if (percent >= 60) return ocgo_module_css_default.segWarn60;
+			if (percent >= 50) return ocgo_module_css_default.segWarn50;
+		}
+		/** The severity class of the budget window (windows additionally honor status). */
 		function budgetSeverity(budget) {
 			if (budget === void 0) return void 0;
-			if (budget.exceeded || budget.percent >= 90) return ocgo_module_css_default.segCrit90;
-			if (budget.percent >= 80) return ocgo_module_css_default.segErr80;
-			if (budget.percent >= 70) return ocgo_module_css_default.segWarn70;
-			if (budget.percent >= 60) return ocgo_module_css_default.segWarn60;
-			if (budget.percent >= 50) return ocgo_module_css_default.segWarn50;
+			return severityClass(budget.percent, budget.exceeded);
 		}
 		/** Detect dark mode via DSH body attribute. */
 		function useDarkMode() {
@@ -226,7 +244,7 @@ window.__ModuleLoader__.load({
 			if (secret === void 0 || !secret.set || secret.tail.length === 0) return "";
 			return `${MASK}${secret.tail}`;
 		}
-		/** One compact segment: `· 预算 0%` (or a plain metric). */
+		/** One compact segment: `· 5h 23%` (or a plain metric). */
 		function Seg(props) {
 			const { sep, className, children } = props;
 			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
@@ -238,6 +256,20 @@ window.__ModuleLoader__.load({
 					className: className ?? void 0,
 					children
 				})]
+			});
+		}
+		/** One plan-window segment on the chip: `· 5h 23%`. */
+		function WindowSegment(props) {
+			const { window, sep } = props;
+			return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(Seg, {
+				sep,
+				className: severityClass(window.percent, window.status !== "ok"),
+				children: [
+					WINDOW_LABELS[window.kind],
+					" ",
+					window.percent,
+					"%"
+				]
 			});
 		}
 		/** One full panel row: label + value (+ sub). */
@@ -261,8 +293,8 @@ window.__ModuleLoader__.load({
 			});
 		}
 		/**
-		* The OpenCode Go usage chip: polls the host snapshot, renders the budget
-		* window + key totals inline, and expands into a detail panel on click.
+		* The OpenCode Go usage chip: polls the host snapshot, renders the three plan
+		* windows (or the console metrics), and expands into a detail panel on click.
 		* @param props - the composed dock entry props.
 		*/
 		function OcgoDockEntry(props) {
@@ -396,6 +428,81 @@ window.__ModuleLoader__.load({
 			};
 			const t = props.t;
 			const sep = ` ${t("ocgo.sep")} `;
+			/** The credential editor panel (Set): workspace + API key (+ optional token). */
+			const setEditor = () => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+				className: ocgo_module_css_default.setPanel,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+						className: ocgo_module_css_default.field,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ocgo_module_css_default.fieldLabel,
+							children: t("ocgo.workspaceID")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+							className: ocgo_module_css_default.fieldInput,
+							value: wsDraft,
+							placeholder: "wrk_…",
+							spellCheck: false,
+							autoComplete: "off",
+							onChange: (e) => {
+								setWsDraft(e.target.value);
+							},
+							onFocus: (e) => {
+								if (e.target.value === maskedText(config?.workspaceID)) e.target.select();
+							}
+						})]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+						className: ocgo_module_css_default.field,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ocgo_module_css_default.fieldLabel,
+							children: t("ocgo.apiKey")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+							className: ocgo_module_css_default.fieldInput,
+							value: apiKeyDraft,
+							placeholder: "open-code-go API key…",
+							spellCheck: false,
+							autoComplete: "off",
+							onChange: (e) => {
+								setApiKeyDraft(e.target.value);
+							},
+							onFocus: (e) => {
+								if (e.target.value === maskedText(config?.apiKey)) e.target.select();
+							}
+						})]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
+						className: ocgo_module_css_default.field,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ocgo_module_css_default.fieldLabel,
+							children: t("ocgo.token")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+							className: ocgo_module_css_default.fieldInput,
+							value: tokenDraft,
+							placeholder: "st_…（可选，无 key 时）",
+							spellCheck: false,
+							autoComplete: "off",
+							onChange: (e) => {
+								setTokenDraft(e.target.value);
+							},
+							onFocus: (e) => {
+								if (e.target.value === maskedText(config?.token)) e.target.select();
+							}
+						})]
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+						className: ocgo_module_css_default.foot,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ocgo_module_css_default.setHint,
+							children: t("ocgo.setHint")
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: ocgo_module_css_default.refreshBtn,
+							onClick: closePanel,
+							children: t("ocgo.save")
+						})]
+					})
+				]
+			});
 			if (!visible) return null;
 			const error = view === null ? {
 				code: "fetch",
@@ -424,87 +531,22 @@ window.__ModuleLoader__.load({
 					]
 				}), open && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: ocgo_module_css_default.details,
-					children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: ocgo_module_css_default.setPanel,
-						children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-								className: ocgo_module_css_default.field,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: ocgo_module_css_default.fieldLabel,
-									children: t("ocgo.workspaceID")
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-									className: ocgo_module_css_default.fieldInput,
-									value: wsDraft,
-									placeholder: "wrk_…",
-									spellCheck: false,
-									autoComplete: "off",
-									onChange: (e) => {
-										setWsDraft(e.target.value);
-									},
-									onFocus: (e) => {
-										if (e.target.value === maskedText(config?.workspaceID)) e.target.select();
-									}
-								})]
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-								className: ocgo_module_css_default.field,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: ocgo_module_css_default.fieldLabel,
-									children: t("ocgo.token")
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-									className: ocgo_module_css_default.fieldInput,
-									value: tokenDraft,
-									placeholder: "st_…",
-									spellCheck: false,
-									autoComplete: "off",
-									onChange: (e) => {
-										setTokenDraft(e.target.value);
-									},
-									onFocus: (e) => {
-										if (e.target.value === maskedText(config?.token)) e.target.select();
-									}
-								})]
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-								className: ocgo_module_css_default.field,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: ocgo_module_css_default.fieldLabel,
-									children: t("ocgo.apiKey")
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-									className: ocgo_module_css_default.fieldInput,
-									value: apiKeyDraft,
-									placeholder: "（可选）仅累计用量",
-									spellCheck: false,
-									autoComplete: "off",
-									onChange: (e) => {
-										setApiKeyDraft(e.target.value);
-									},
-									onFocus: (e) => {
-										if (e.target.value === maskedText(config?.apiKey)) e.target.select();
-									}
-								})]
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-								className: ocgo_module_css_default.foot,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: ocgo_module_css_default.setHint,
-									children: t("ocgo.setHint")
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: ocgo_module_css_default.refreshBtn,
-									onClick: closePanel,
-									children: t("ocgo.save")
-								})]
-							})
-						]
+						children: setEditor()
 					})
 				})]
 			});
 			const snapshot = view;
+			const windows = [
+				snapshot.rolling,
+				snapshot.weekly,
+				snapshot.monthly
+			].filter((w) => w !== void 0);
 			const budget = snapshot.budget;
 			const usage = snapshot.usage;
 			const billing = snapshot.billing;
-			if (budget === void 0 && usage === void 0) return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
+			if (windows.length === 0 && budget === void 0 && usage === void 0) return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 				type: "button",
 				className: ocgo_module_css_default.chip,
 				onClick: refresh,
@@ -516,12 +558,15 @@ window.__ModuleLoader__.load({
 					t("ocgo.unavailable")
 				]
 			});
-			const budgetCls = budgetSeverity(budget);
 			const chipSegs = [];
-			if (budget !== void 0) {
+			if (windows.length > 0) for (const w of windows) chipSegs.push(/* @__PURE__ */ (0, react_jsx_runtime.jsx)(WindowSegment, {
+				window: w,
+				sep
+			}, w.kind));
+			else if (budget !== void 0) {
 				chipSegs.push(/* @__PURE__ */ (0, react_jsx_runtime.jsxs)(Seg, {
 					sep,
-					className: budgetCls,
+					className: budgetSeverity(budget),
 					children: [
 						t("ocgo.budget"),
 						" ",
@@ -586,80 +631,13 @@ window.__ModuleLoader__.load({
 					]
 				}), open && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 					className: ocgo_module_css_default.details,
-					children: mode === "set" ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-						className: ocgo_module_css_default.setPanel,
-						children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-								className: ocgo_module_css_default.field,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: ocgo_module_css_default.fieldLabel,
-									children: t("ocgo.workspaceID")
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-									className: ocgo_module_css_default.fieldInput,
-									value: wsDraft,
-									placeholder: "wrk_…",
-									spellCheck: false,
-									autoComplete: "off",
-									onChange: (e) => {
-										setWsDraft(e.target.value);
-									},
-									onFocus: (e) => {
-										if (e.target.value === maskedText(config?.workspaceID)) e.target.select();
-									}
-								})]
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-								className: ocgo_module_css_default.field,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: ocgo_module_css_default.fieldLabel,
-									children: t("ocgo.token")
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-									className: ocgo_module_css_default.fieldInput,
-									value: tokenDraft,
-									placeholder: "st_…",
-									spellCheck: false,
-									autoComplete: "off",
-									onChange: (e) => {
-										setTokenDraft(e.target.value);
-									},
-									onFocus: (e) => {
-										if (e.target.value === maskedText(config?.token)) e.target.select();
-									}
-								})]
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-								className: ocgo_module_css_default.field,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: ocgo_module_css_default.fieldLabel,
-									children: t("ocgo.apiKey")
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-									className: ocgo_module_css_default.fieldInput,
-									value: apiKeyDraft,
-									placeholder: "（可选）仅累计用量",
-									spellCheck: false,
-									autoComplete: "off",
-									onChange: (e) => {
-										setApiKeyDraft(e.target.value);
-									},
-									onFocus: (e) => {
-										if (e.target.value === maskedText(config?.apiKey)) e.target.select();
-									}
-								})]
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-								className: ocgo_module_css_default.foot,
-								children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: ocgo_module_css_default.setHint,
-									children: t("ocgo.setHint")
-								}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: ocgo_module_css_default.refreshBtn,
-									onClick: closePanel,
-									children: t("ocgo.save")
-								})]
-							})
-						]
-					}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+					children: mode === "set" ? setEditor() : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+						windows.map((w) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MetricRow, {
+							label: w.status !== "ok" ? t("ocgo.rateLimited") : t(WINDOW_TITLE_KEYS[w.kind]),
+							value: `${w.percent}%`,
+							sub: t("ocgo.resetsIn", { duration: formatDuration(w.resetInSec) }),
+							valueClass: severityClass(w.percent, w.status !== "ok")
+						}, w.kind)),
 						budget !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)(MetricRow, {
 							label: budget.exceeded ? t("ocgo.exceeded") : t("ocgo.budget"),
 							value: `${budget.percent}%`,
@@ -725,9 +703,14 @@ window.__ModuleLoader__.load({
 		const zh = {
 			"ocgo.unavailable": "用量不可用",
 			"ocgo.error": "查询失败：{code}",
-			"ocgo.noconfig": "未配置：请在 Set 里填写 workspace id 与控制台 token（或 API key）",
+			"ocgo.noconfig": "未配置：请在 Set 里填写 OpenCode Go API key（或控制台 token）",
 			"ocgo.refresh": "刷新",
 			"ocgo.fetchedAt": "upd {time}",
+			"ocgo.rolling": "5h 滚动",
+			"ocgo.weekly": "每周",
+			"ocgo.monthly": "每月",
+			"ocgo.rateLimited": "已限流",
+			"ocgo.resetsIn": "剩余 {duration}",
 			"ocgo.expand": "展开用量详情",
 			"ocgo.collapse": "收起",
 			"ocgo.sep": "·",
@@ -739,9 +722,7 @@ window.__ModuleLoader__.load({
 			"ocgo.setHint": "点击外部或按 Esc 保存",
 			"ocgo.budget": "月度预算",
 			"ocgo.spentOf": "已用 {spent} / {limit}",
-			"ocgo.resetsIn": "剩余 {duration}",
 			"ocgo.exceeded": "预算超支",
-			"ocgo.rateLimited": "已限流",
 			"ocgo.requests": "请求",
 			"ocgo.requestsChip": "req",
 			"ocgo.inputTokens": "输入 tokens",
@@ -754,9 +735,14 @@ window.__ModuleLoader__.load({
 		const en = {
 			"ocgo.unavailable": "usage unavailable",
 			"ocgo.error": "Query failed: {code}",
-			"ocgo.noconfig": "Not configured: set workspace id and a console token (or API key) in Set",
+			"ocgo.noconfig": "Not configured: set an OpenCode Go API key (or console token) in Set",
 			"ocgo.refresh": "Refresh",
 			"ocgo.fetchedAt": "upd {time}",
+			"ocgo.rolling": "5h Rolling",
+			"ocgo.weekly": "Weekly",
+			"ocgo.monthly": "Monthly",
+			"ocgo.rateLimited": "rate-limited",
+			"ocgo.resetsIn": "resets in {duration}",
 			"ocgo.expand": "Show usage details",
 			"ocgo.collapse": "Collapse",
 			"ocgo.sep": "·",
@@ -768,9 +754,7 @@ window.__ModuleLoader__.load({
 			"ocgo.setHint": "click outside or press Esc to save",
 			"ocgo.budget": "Monthly budget",
 			"ocgo.spentOf": "{spent} / {limit} used",
-			"ocgo.resetsIn": "resets in {duration}",
 			"ocgo.exceeded": "Budget exceeded",
-			"ocgo.rateLimited": "rate-limited",
 			"ocgo.requests": "Requests",
 			"ocgo.requestsChip": "req",
 			"ocgo.inputTokens": "Input tokens",

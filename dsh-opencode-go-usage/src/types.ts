@@ -3,8 +3,23 @@
  * @module dsh-ocgo-usage/types
  */
 
-/** Whether the displayed window/metrics are usable. */
+/** One of the three OpenCode Go usage windows. */
+export type UsageWindowKind = 'rolling' | 'weekly' | 'monthly'
+
+/** Whether the window is still usable or the account is rate-limited. */
 export type UsageStatus = 'ok' | 'rate-limited'
+
+/** One usage window: percent used + seconds until reset. */
+export interface UsageWindow {
+  /** Window identity. */
+  readonly kind: UsageWindowKind
+  /** 0–100 integer percent. */
+  readonly percent: number
+  /** Seconds until the window resets. */
+  readonly resetInSec: number
+  /** `rate-limited` when the window is exhausted. */
+  readonly status: UsageStatus
+}
 
 /** The org monthly budget window (opencode console `budgets/org`). */
 export interface BudgetWindow {
@@ -40,31 +55,35 @@ export interface BillingInfo {
 export interface NormalizedUsage {
   /** Epoch ms of the last successful fetch (data freshness). */
   readonly updatedAt: number
-  /** Cumulative totals (always present on success). */
-  readonly usage: UsageTotals
-  /** Monthly budget window (present only with a console session token). */
+  /** Window path (API key, `zen/go/v1/usage`): the three plan windows. */
+  readonly rolling?: UsageWindow
+  readonly weekly?: UsageWindow
+  readonly monthly?: UsageWindow
+  /** Console path (session token): cumulative totals. */
+  readonly usage?: UsageTotals
+  /** Console path (session token): monthly budget window. */
   readonly budget?: BudgetWindow
-  /** Prepaid balance (present only with a console session token). */
+  /** Console path (session token): prepaid balance. */
   readonly billing?: BillingInfo
 }
 
 /** Fully resolved plugin configuration (env + config file + defaults). */
 export interface OcgoConfig {
   /**
-   * OpenCode console session token (the `__Host-console_session` value,
-   * e.g. `st_...`). Sent as `Authorization: Bearer`. Unlocks the org budget
-   * window and billing readouts.
-   */
-  readonly token?: string
-  /**
-   * Service-account API key. Enough for the cumulative `usage/summary`
-   * totals, but not for the org budget/billing endpoints.
+   * Service-account API key. PRIMARY credential: unlocks the three plan
+   * windows through `https://opencode.ai/zen/go/v1/usage`.
    */
   readonly apiKey?: string
+  /**
+   * OpenCode console session token (the `__Host-console_session` value,
+   * e.g. `st_...`). FALLBACK credential: unlocks the console JSON API
+   * (cumulative totals / budget / balance) when no API key is set.
+   */
+  readonly token?: string
   /** Legacy session cookie (old `auth=Fe26.2*...` path), kept for
    * compatibility; the console now prefers `token`. */
   readonly cookie?: string
-  /** OpenCode workspace id (e.g. `wrk_01...`). */
+  /** OpenCode workspace id (e.g. `wrk_01...`), used by the console path. */
   readonly workspaceID?: string
   /** API base URL. */
   readonly baseUrl: string
@@ -78,6 +97,9 @@ export interface OcgoConfig {
 export interface OcgoUsageView {
   /** Epoch ms of the last successful fetch (absent before any success). */
   readonly updatedAt?: number
+  readonly rolling?: UsageWindow
+  readonly weekly?: UsageWindow
+  readonly monthly?: UsageWindow
   readonly usage?: UsageTotals
   readonly budget?: BudgetWindow
   readonly billing?: BillingInfo

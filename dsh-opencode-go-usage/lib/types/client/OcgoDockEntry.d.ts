@@ -1,12 +1,14 @@
 /**
  * The composer tool-row entry: the OpenCode Go usage readout, mounted in the
  * composer tool row (`conversation.input.right`) next to the model selector.
- * The chip polls the host `/api/ocgo-usage` snapshot (cumulative usage totals
- * from the console JSON API, plus the org monthly budget window and prepaid
- * balance when a console session token is configured); clicking reveals the
- * detail panel, a Set editor (masked workspace/token/api-key) and a manual
- * refresh. In the error state, clicking the chip opens the Set editor
- * directly so a stale credential can be replaced in place.
+ * The chip polls the host `/api/ocgo-usage` snapshot and renders:
+ *  - the three plan windows (5h rolling / weekly / monthly) when an API key
+ *    is configured (`zen/go/v1/usage`), or
+ *  - the console metrics (cumulative totals + monthly budget + balance) when
+ *    only a session token is configured.
+ * Clicking reveals a detail panel, a Set editor (masked workspace/token/api
+ * key) and a manual refresh. In the error state, clicking the chip opens the
+ * Set editor directly so a stale credential can be replaced in place.
  * @module dsh-ocgo-usage/client/OcgoDockEntry
  */
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
@@ -25,8 +27,8 @@ export declare function formatUsd(microCents: string | undefined): string;
 /** Token / request counts → compact units, e.g. `7.0M` / `2.1k`. */
 export declare function formatCount(raw: string | undefined): string;
 /**
- * The OpenCode Go usage chip: polls the host snapshot, renders the budget
- * window + key totals inline, and expands into a detail panel on click.
+ * The OpenCode Go usage chip: polls the host snapshot, renders the three plan
+ * windows (or the console metrics), and expands into a detail panel on click.
  * @param props - the composed dock entry props.
  */
 export declare function OcgoDockEntry(props: OcgoDockEntryProps): React.ReactElement | null;

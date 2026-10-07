@@ -18,12 +18,13 @@ const SAVED = {
   workspace: process.env[ENV_WORKSPACE_ID],
 }
 
-const SUMMARY = {
-  totalRequests: '2120',
-  totalInputTokens: '6952444',
-  totalOutputTokens: '1614687',
-  totalCacheReadTokens: '414611757',
-  totalCostMicroCents: '443820552',
+/** A realistic `zen/go/v1/usage` response (the API-key path). */
+const ZEN_USAGE = {
+  usage: {
+    rolling: { status: 'ok', percent: 8, resetsAt: new Date(Date.now() + 3600e3).toISOString() },
+    weekly: { status: 'ok', percent: 10, resetsAt: new Date(Date.now() + 86400e3 * 5).toISOString() },
+    monthly: { status: 'ok', percent: 12, resetsAt: new Date(Date.now() + 86400e3 * 12).toISOString() },
+  },
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -64,37 +65,37 @@ describe('OcgoUsageService', () => {
   })
 
   it('returns the parsed totals on success', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(SUMMARY))
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse(ZEN_USAGE))
     const service = new OcgoUsageService(ctx)
     const view = await service.view()
     expect(view.error).toBeUndefined()
-    expect(view.usage?.requests).toBe('2120')
-    expect(view.usage?.costMicroCents).toBe('443820552')
+    expect(view.rolling?.percent).toBe(8)
+    expect(view.monthly?.percent).toBe(12)
     expect(view.updatedAt).toBeTypeOf('number')
   })
 
   it('deduplicates concurrent view() calls into one fetch', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(SUMMARY))
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse(ZEN_USAGE))
     const service = new OcgoUsageService(ctx)
     const [a, b] = await Promise.all([service.view(), service.view()])
-    expect(a.usage?.requests).toBe('2120')
-    expect(b.usage?.requests).toBe('2120')
-    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(a.rolling?.percent).toBe(8)
+    expect(b.rolling?.percent).toBe(8)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
   })
 
   it('serves the cached view within the TTL without refetching', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(SUMMARY))
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse(ZEN_USAGE))
     const service = new OcgoUsageService(ctx)
     await service.view()
     await service.view()
-    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
   })
 
   it('returns a noconfig error when no credential is set', async () => {
     delete process.env[ENV_TOKEN]
     delete process.env[ENV_API_KEY]
     delete process.env[ENV_COOKIE]
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(SUMMARY))
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse(ZEN_USAGE))
     const service = new OcgoUsageService(ctx)
     const view = await service.view()
     expect(view.error).toBe('noconfig')
@@ -102,26 +103,28 @@ describe('OcgoUsageService', () => {
   })
 
   it('maps an HTTP failure to an http<status> code and enters cooldown', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({}, 500))
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse({}, 500))
     const service = new OcgoUsageService(ctx)
     const first = await service.view()
     expect(first.error).toBe('http500')
     // Cooldown: the second call reuses the error without fetching again.
     const second = await service.view()
     expect(second.error).toBe('http500')
+    // The primary windows fetch fails first, so totals are never attempted.
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
   it('refresh() bypasses the cache window', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(SUMMARY))
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse(ZEN_USAGE))
     const service = new OcgoUsageService(ctx)
     await service.view()
     await service.refresh()
-    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    
+    expect(fetchSpy).toHaveBeenCalledTimes(4)
   })
 
   it('answers disabled when the plugin is switched off', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse(SUMMARY))
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => jsonResponse(ZEN_USAGE))
     const service = new OcgoUsageService(ctx, { enabled: false })
     const view = await service.view()
     expect(view.error).toBe('disabled')

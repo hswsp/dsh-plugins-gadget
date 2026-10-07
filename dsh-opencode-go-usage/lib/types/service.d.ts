@@ -8,7 +8,7 @@
  */
 import { Context, Service } from '@deepseek-ai/cordis';
 import type { OcgoUsageView } from './types.ts';
-export type { BillingInfo, BudgetWindow, NormalizedUsage, OcgoUsageView, UsageStatus, UsageTotals, } from './types.ts';
+export type { BillingInfo, BudgetWindow, NormalizedUsage, OcgoUsageView, UsageStatus, UsageTotals, UsageWindow, UsageWindowKind, } from './types.ts';
 /** Plugin configuration. */
 export interface OcgoUsageConfig {
     /** Master switch for the plugin (host routes + browser readout). */

@@ -19,6 +19,8 @@ export type {
   OcgoUsageView,
   UsageStatus,
   UsageTotals,
+  UsageWindow,
+  UsageWindowKind,
 } from './types.ts'
 
 /** Plugin configuration. */
@@ -143,7 +145,10 @@ export class OcgoUsageService extends Service {
 function toView(data: NormalizedUsage): OcgoUsageView {
   return {
     updatedAt: data.updatedAt,
-    usage: data.usage,
+    ...(data.rolling === undefined ? {} : { rolling: data.rolling }),
+    ...(data.weekly === undefined ? {} : { weekly: data.weekly }),
+    ...(data.monthly === undefined ? {} : { monthly: data.monthly }),
+    ...(data.usage === undefined ? {} : { usage: data.usage }),
     ...(data.budget === undefined ? {} : { budget: data.budget }),
     ...(data.billing === undefined ? {} : { billing: data.billing }),
   }

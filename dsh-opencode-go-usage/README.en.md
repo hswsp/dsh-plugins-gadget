@@ -22,17 +22,17 @@ OpenCode Go: 5h 0% (1h 23m) · wk 65% (2d 20h) · mo 83% (6d 21h) · upd 20:15
 - **Color thresholds** — muted → warning (≥80%) → error (≥90% or rate-limited)
 - **Data freshness** — `upd HH:MM` shows the last successful fetch time
 - **Lightweight polling** — every 10 s (and on tab refocus); the host caches for 300 s (TTL configurable) with a 60 s failure cooldown, so opencode.ai is never hammered
-- **Provider-aware** — the chip shows only while the session's current model routes through the `opencode-go` provider. Visibility reads the live in-memory model selection (`session.models`, ~ms warm) on every poll, so switching to e.g. DeepSeek official via `/model` hides it within one 10 s cycle and switching back re-shows it (mirrors pi-ocgo-usage)
-- **Click to expand** — detail panel with per-window reset countdowns, a `Set` credential editor, and `refresh upd HH:MM`
-- **Built-in credential editor** — no terminal needed: the `Set` panel edits workspace id and cookie in place (fields show `••••` + last 4 chars; click outside / Esc / Save confirms the write)
+- **Provider-aware** — the chip shows only while the session's current model routes through the `opencode-go` provider. Visibility reads the session's durable `modelSelection` projection (client `sessions` service, ~ms warm; falls back to the `session.projections` Remote), so switching to e.g. DeepSeek official hides it within one 10 s cycle and switching back re-shows it (mirrors pi-ocgo-usage)
+- **Click to expand** — detail panel with per-window reset countdowns plus budget / requests / tokens / cost / balance, a `Set` credential editor, and `refresh upd HH:MM`
+- **Built-in credential editor** — no terminal needed: the `Set` panel edits workspace id / API key / console token in place (fields show `••••` + last 4 chars; click outside / Esc / Save confirms the write)
 - **Graceful degradation** — missing config shows `<err:noconfig>`, HTTP failures `<err:httpXXX>`; on error, clicking the chip opens the Set editor directly
-- **Cookie stays on the host** — the browser only ever talks to the same-origin `/api/ocgo-usage` JSON endpoint; the cookie never reaches the page
+- **Credentials stay on the host** — the browser only ever talks to the same-origin `/api/ocgo-usage` JSON endpoint; the API key and token never reach the page
 
-> **⚠️ Requires an OpenCode Go session cookie.** The cookie is a full user session (not an API key) and grants access to your entire OpenCode account. Treat it like a password — see [Configuration](#configuration).
+> **⚠️ The API key and console token grant access to your OpenCode account.** Treat them like passwords — see [Configuration](#configuration).
 
 ## Requirements
 
-- DeepSeek Harness `0.1.0-rc.6` or newer (web profile)
+- DeepSeek Harness `0.1.2-rc.1` or newer (web profile)
 - pnpm on `PATH` (for `dsh plugin`)
 
 ## Installation
@@ -80,32 +80,71 @@ dsh --profile web --dump-config   # shows a "# == dsh-ocgo-usage" layer
 
 ## Configuration
 
+The plugin reads up to **three fields** from opencode.ai. Where to put them: the Set panel (Option 1), env vars (Option 2), or the config file (Option 3).
+
+| Field | Required | Purpose | How to obtain |
+| --- | --- | --- | --- |
+| **workspace ID** | recommended | identifies the workspace (`x-org-id` for the console endpoints) | see [Get the workspace ID](#get-the-workspace-id) |
+| **API key** | **yes** | the **5h / weekly / monthly windows** + cumulative usage (`zen/go/v1/usage`, `usage/summary`) | see [Get the API key](#get-the-api-key) |
+| **Console token** | optional | monthly budget + balance (`budgets/org`, `billing/status`) | see [Get the console token](#get-the-console-token) |
+
+> With just the API key the chip still works: three windows + cumulative usage. Without the console token you only miss the budget/balance rows.
+
+### Get the workspace ID
+
+Log in to [opencode.ai](https://opencode.ai) in a browser, open any console page (e.g. **Service accounts**), and read the address bar:
+
+```
+https://opencode.ai/console/wrk_01KW0ZYWDSDEPS16NSM5TT0Z32/service-accounts
+                        └──── the wrk_-prefixed segment is the workspace ID ────┘
+```
+
+### Get the API key
+
+1. Log in to [opencode.ai](https://opencode.ai) → console → **Service accounts** page → create a service account (or reuse one).
+2. Under that account click **Create API key** and copy it immediately (it looks like `oc_sk_...` and is **shown only once**).
+3. Paste it into the plugin's **API key** field (or `OPENCODE_GO_API_KEY` / config `apiKey`).
+
+> Local shortcut: if you already logged in with the opencode CLI, the `key` under `opencode-go` in `~/.local/share/opencode/auth.json` is a working API key.
+
+### Get the console token
+
+1. Log in to opencode.ai in a browser → press F12 → **Application** → **Storage → Cookies** → select `https://opencode.ai`.
+2. Find the **`__Host-console_session`** row and copy its **Value** (it looks like `st_...`).
+3. Paste it into the plugin's **Console token** field (or `OPENCODE_GO_CONSOLE_TOKEN` / config `token`).
+
+> `__Host-` cookies are HttpOnly: `document.cookie` never shows it — you must copy it from the Application panel (or the `Cookie:` header of a `/console/api` request in Network).
+
 ### Option 1: the in-UI Set panel (easiest)
 
-Click the chip to expand → `Set` (bottom-left) → type the workspace id and cookie (existing values show as `••••` + last 4 chars; focus a field to type a replacement) → click outside / press Esc / hit Save — it takes effect immediately.
+Click the chip to expand → `Set` (bottom-left) → type the three fields (**workspace id**, **API key**, **console token**; existing values show as `••••` + last 4 chars; focus a field to type a replacement) → click outside / press Esc / hit Save — it takes effect immediately.
 
 ![Set editor](assets/set-cookie-wid.png)
 
-### Option 2: environment variables (same names as pi-ocgo-usage)
+### Option 2: environment variables (`OPENCODE_GO_*`)
 
 ```sh
-export OPENCODE_GO_COOKIE="auth=Fe26.2*...; oc_locale=en"
 export OPENCODE_GO_WORKSPACE_ID="wrk_01XXXXXXXXXXXXXXXXXXXXXXXX"
+export OPENCODE_GO_API_KEY="oc_sk_..."          # required: windows + cumulative usage
+export OPENCODE_GO_CONSOLE_TOKEN="st_..."       # optional: budget + balance
+# legacy (no longer recommended):
+# export OPENCODE_GO_COOKIE="auth=Fe26.2*...; oc_locale=en"
 ```
 
 ### Option 3: config file
 
-Write `$DSH_HOME/ocgo-usage.json` (default `~/.dsh/ocgo-usage.json`):
+Write `$DSH_HOME/ocgo-usage.json` (desktop: `$DSH_HOME` = `~/Library/Application Support/dsh-desktop/harness`):
 
 ```jsonc
 {
-  "cookie": "auth=Fe26.2*...; oc_locale=en",
-  "workspaceID": "wrk_01XXXXXXXXXXXXXXXXXXXXXXXX"
+  "workspaceID": "wrk_01XXXXXXXXXXXXXXXXXXXXXXXX",
+  "apiKey": "oc_sk_...",
+  "token": "st_..."        // optional
 }
 ```
 
 ```sh
-chmod 600 ~/.dsh/ocgo-usage.json
+chmod 600 $DSH_HOME/ocgo-usage.json
 ```
 
 Priority: env vars > config file > built-in defaults.
@@ -126,7 +165,7 @@ Composition-level config (via `~/.dsh/profiles/web/cordis.patch.yml`):
     enabled: false    # master switch, default true
 ```
 
-> **Cookie expiration:** the `auth` cookie is valid for 1 year from issue. When it expires (or is revoked), the page 302-redirects to the login page; the chip then shows `<err:http302>` instead of stale numbers. Re-login to opencode.ai and update the cookie via the Set panel.
+> **Credential expiration:** an invalid API key / console token makes the chip show `<err:http401>`. Re-obtain and replace it via the Set panel (or the env/config routes above).
 
 ## Usage
 
@@ -136,15 +175,15 @@ Click the chip to expand the detail panel: each window shows its full name, perc
 
 ## How it works
 
-- **Host half** (`src/index.ts`, `src/service.ts`, `src/api.ts`, `src/routes.ts`) — fetches `GET /workspace/<wrk>/go` with the cookie, parses the SSR-rendered `data-slot="usage-item"` blocks into `{percent, resetInSec, status}` per window, caches the result, and serves it as same-origin JSON at `/api/ocgo-usage` (+ `/api/ocgo-usage/refresh`, `/api/ocgo-usage/config`).
-- **Browser half** (`src/client/`) — registers a chip into the `conversation.composer.dock` slot, polls the host endpoints every 10 s, and renders the three windows with severity colors; visibility comes from the live provider in `session.models`.
+- **Host half** (`src/index.ts`, `src/service.ts`, `src/api.ts`, `src/routes.ts`) — carries the credentials to the official endpoints: `GET https://opencode.ai/zen/go/v1/usage` (Bearer **API key**) for the three plan windows; `GET https://opencode.ai/console/api/usage/summary` (Bearer key or token + `x-org-id`) for cumulative totals; `GET .../console/api/budgets/org` and `.../billing/status` (Bearer **token**) for the monthly budget and balance. Results are cached and served as same-origin JSON at `/api/ocgo-usage` (+ `/api/ocgo-usage/refresh`, `/api/ocgo-usage/config`).
+- **Browser half** (`src/client/`) — registers a chip into the `conversation.input.right` slot (composer tool row, next to the model selector), polls the host endpoints every 10 s, and renders the three windows (severity colors) plus budget/requests/tokens/cost/balance; visibility comes from the client `sessions` service's durable `modelSelection` projection.
 
-The browser never sees the cookie; all fetching and parsing happen on the host.
+The browser never sees the credentials; all fetching and parsing happen on the host.
 
 ## Security
 
-- The `auth` cookie is a **full OpenCode user session**. Anyone with it can access every workspace, subscription, and billing detail in your account.
-- The plugin **never** logs the cookie, includes it in error messages, or sends it to the browser.
+- The **API key** and **console token** are your OpenCode account credentials (the console token is effectively a login session). Anyone holding them can read your workspace usage, subscription, and billing details — treat them like passwords.
+- The plugin **never** logs credentials, includes them in error messages, or sends them to the browser.
 - The config editor only writes new values to `$DSH_HOME/ocgo-usage.json` (chmod 600); the browser only ever sees the `••••` + last-4 masked view.
 
 ## Development

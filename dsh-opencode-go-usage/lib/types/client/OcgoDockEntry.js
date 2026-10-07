@@ -2,12 +2,14 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 /**
  * The composer tool-row entry: the OpenCode Go usage readout, mounted in the
  * composer tool row (`conversation.input.right`) next to the model selector.
- * The chip polls the host `/api/ocgo-usage` snapshot (cumulative usage totals
- * from the console JSON API, plus the org monthly budget window and prepaid
- * balance when a console session token is configured); clicking reveals the
- * detail panel, a Set editor (masked workspace/token/api-key) and a manual
- * refresh. In the error state, clicking the chip opens the Set editor
- * directly so a stale credential can be replaced in place.
+ * The chip polls the host `/api/ocgo-usage` snapshot and renders:
+ *  - the three plan windows (5h rolling / weekly / monthly) when an API key
+ *    is configured (`zen/go/v1/usage`), or
+ *  - the console metrics (cumulative totals + monthly budget + balance) when
+ *    only a session token is configured.
+ * Clicking reveals a detail panel, a Set editor (masked workspace/token/api
+ * key) and a manual refresh. In the error state, clicking the chip opens the
+ * Set editor directly so a stale credential can be replaced in place.
  * @module dsh-ocgo-usage/client/OcgoDockEntry
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -35,6 +37,18 @@ const ocgoApi = {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(partial),
     }),
+};
+/** Short window label: 5h / wk / mo. */
+const WINDOW_LABELS = {
+    rolling: '5h',
+    weekly: 'wk',
+    monthly: 'mo',
+};
+/** Full window label key for the detail panel. */
+const WINDOW_TITLE_KEYS = {
+    rolling: 'ocgo.rolling',
+    weekly: 'ocgo.weekly',
+    monthly: 'ocgo.monthly',
 };
 /**
  * Format a duration (seconds) compactly: 45s / 23m / 5h 23m / 4d 6h.
@@ -82,21 +96,25 @@ export function formatCount(raw) {
         return `${(value / 1e3).toFixed(1)}k`;
     return String(value);
 }
-/** The severity class of the budget window (muted → escalating warn → err). */
+/** The severity class of one window/budget (muted → escalating warn → err). */
+function severityClass(percent, rateLimited = false) {
+    if (rateLimited || percent >= 90)
+        return css.segCrit90;
+    if (percent >= 80)
+        return css.segErr80;
+    if (percent >= 70)
+        return css.segWarn70;
+    if (percent >= 60)
+        return css.segWarn60;
+    if (percent >= 50)
+        return css.segWarn50;
+    return undefined;
+}
+/** The severity class of the budget window (windows additionally honor status). */
 function budgetSeverity(budget) {
     if (budget === undefined)
         return undefined;
-    if (budget.exceeded || budget.percent >= 90)
-        return css.segCrit90;
-    if (budget.percent >= 80)
-        return css.segErr80;
-    if (budget.percent >= 70)
-        return css.segWarn70;
-    if (budget.percent >= 60)
-        return css.segWarn60;
-    if (budget.percent >= 50)
-        return css.segWarn50;
-    return undefined;
+    return severityClass(budget.percent, budget.exceeded);
 }
 /** Detect dark mode via DSH body attribute. */
 function useDarkMode() {
@@ -131,10 +149,15 @@ function maskedText(secret) {
         return '';
     return `${MASK}${secret.tail}`;
 }
-/** One compact segment: `· 预算 0%` (or a plain metric). */
+/** One compact segment: `· 5h 23%` (or a plain metric). */
 function Seg(props) {
     const { sep, className, children } = props;
     return (_jsxs("span", { className: css.seg, children: [_jsx("span", { className: css.segSep, children: sep }), _jsx("span", { className: className ?? undefined, children: children })] }));
+}
+/** One plan-window segment on the chip: `· 5h 23%`. */
+function WindowSegment(props) {
+    const { window, sep } = props;
+    return (_jsxs(Seg, { sep: sep, className: severityClass(window.percent, window.status !== 'ok'), children: [WINDOW_LABELS[window.kind], " ", window.percent, "%"] }));
 }
 /** One full panel row: label + value (+ sub). */
 function MetricRow(props) {
@@ -142,15 +165,15 @@ function MetricRow(props) {
     return (_jsxs("span", { className: css.window, children: [_jsx("span", { className: css.windowLabel, children: label }), _jsxs("span", { className: css.windowValue, children: [_jsx("span", { className: valueClass ?? undefined, children: value }), sub !== undefined && _jsx("span", { className: css.windowReset, children: sub })] })] }));
 }
 /**
- * The OpenCode Go usage chip: polls the host snapshot, renders the budget
- * window + key totals inline, and expands into a detail panel on click.
+ * The OpenCode Go usage chip: polls the host snapshot, renders the three plan
+ * windows (or the console metrics), and expands into a detail panel on click.
  * @param props - the composed dock entry props.
  */
 export function OcgoDockEntry(props) {
     const [view, setView] = useState(null);
     const [open, setOpen] = useState(false);
     const [visible, setVisible] = useState(true);
-    // Panel mode: 'view' = metrics + footer; 'set' = workspace/token/api-key editor.
+    // Panel mode: 'view' = windows/metrics + footer; 'set' = credential editor.
     const [mode, setMode] = useState('view');
     const [config, setConfig] = useState(null);
     const [wsDraft, setWsDraft] = useState('');
@@ -305,6 +328,11 @@ export function OcgoDockEntry(props) {
     };
     const t = props.t;
     const sep = ` ${t('ocgo.sep')} `;
+    /** The credential editor panel (Set): workspace + API key (+ optional token). */
+    const setEditor = () => (_jsxs("span", { className: css.setPanel, children: [_jsxs("label", { className: css.field, children: [_jsx("span", { className: css.fieldLabel, children: t('ocgo.workspaceID') }), _jsx("input", { className: css.fieldInput, value: wsDraft, placeholder: "wrk_\u2026", spellCheck: false, autoComplete: "off", onChange: (e) => { setWsDraft(e.target.value); }, onFocus: (e) => { if (e.target.value === maskedText(config?.workspaceID))
+                            e.target.select(); } })] }), _jsxs("label", { className: css.field, children: [_jsx("span", { className: css.fieldLabel, children: t('ocgo.apiKey') }), _jsx("input", { className: css.fieldInput, value: apiKeyDraft, placeholder: "open-code-go API key\u2026", spellCheck: false, autoComplete: "off", onChange: (e) => { setApiKeyDraft(e.target.value); }, onFocus: (e) => { if (e.target.value === maskedText(config?.apiKey))
+                            e.target.select(); } })] }), _jsxs("label", { className: css.field, children: [_jsx("span", { className: css.fieldLabel, children: t('ocgo.token') }), _jsx("input", { className: css.fieldInput, value: tokenDraft, placeholder: "st_\u2026\uFF08\u53EF\u9009\uFF0C\u65E0 key \u65F6\uFF09", spellCheck: false, autoComplete: "off", onChange: (e) => { setTokenDraft(e.target.value); }, onFocus: (e) => { if (e.target.value === maskedText(config?.token))
+                            e.target.select(); } })] }), _jsxs("span", { className: css.foot, children: [_jsx("span", { className: css.setHint, children: t('ocgo.setHint') }), _jsx("button", { type: "button", className: css.refreshBtn, onClick: closePanel, children: t('ocgo.save') })] })] }));
     // Hidden whenever the live provider is not opencode-go — the pi-ocgo-usage
     // behaviour: switching to e.g. DeepSeek official hides the chip within one
     // poll interval, so no other provider's user sees OpenCode Go numbers.
@@ -320,25 +348,30 @@ export function OcgoDockEntry(props) {
         return (_jsxs("span", { className: css.wrap, ref: wrapRef, "data-testid": "ocgo-chip-error", children: [_jsxs("button", { type: "button", className: open ? `${css.chip} ${css.chipOpen}` : css.chip, onClick: () => { if (open)
                         closePanel();
                     else
-                        openSet(); }, title: `${error.message}\n${t('ocgo.set')}`, children: [_jsx(OcgoLogo, {}), " <err:", error.code, ">"] }), open && (_jsx("span", { className: css.details, children: _jsxs("span", { className: css.setPanel, children: [_jsxs("label", { className: css.field, children: [_jsx("span", { className: css.fieldLabel, children: t('ocgo.workspaceID') }), _jsx("input", { className: css.fieldInput, value: wsDraft, placeholder: "wrk_\u2026", spellCheck: false, autoComplete: "off", onChange: (e) => { setWsDraft(e.target.value); }, onFocus: (e) => { if (e.target.value === maskedText(config?.workspaceID))
-                                            e.target.select(); } })] }), _jsxs("label", { className: css.field, children: [_jsx("span", { className: css.fieldLabel, children: t('ocgo.token') }), _jsx("input", { className: css.fieldInput, value: tokenDraft, placeholder: "st_\u2026", spellCheck: false, autoComplete: "off", onChange: (e) => { setTokenDraft(e.target.value); }, onFocus: (e) => { if (e.target.value === maskedText(config?.token))
-                                            e.target.select(); } })] }), _jsxs("label", { className: css.field, children: [_jsx("span", { className: css.fieldLabel, children: t('ocgo.apiKey') }), _jsx("input", { className: css.fieldInput, value: apiKeyDraft, placeholder: "\uFF08\u53EF\u9009\uFF09\u4EC5\u7D2F\u8BA1\u7528\u91CF", spellCheck: false, autoComplete: "off", onChange: (e) => { setApiKeyDraft(e.target.value); }, onFocus: (e) => { if (e.target.value === maskedText(config?.apiKey))
-                                            e.target.select(); } })] }), _jsxs("span", { className: css.foot, children: [_jsx("span", { className: css.setHint, children: t('ocgo.setHint') }), _jsx("button", { type: "button", className: css.refreshBtn, onClick: closePanel, children: t('ocgo.save') })] })] }) }))] }));
+                        openSet(); }, title: `${error.message}\n${t('ocgo.set')}`, children: [_jsx(OcgoLogo, {}), " <err:", error.code, ">"] }), open && (_jsx("span", { className: css.details, children: _jsx("span", { className: css.setPanel, children: setEditor() }) }))] }));
     }
     // TS: after the error early-return, `view` is a non-null success snapshot.
     const snapshot = view;
+    const windows = [
+        snapshot.rolling,
+        snapshot.weekly,
+        snapshot.monthly,
+    ].filter((w) => w !== undefined);
     const budget = snapshot.budget;
     const usage = snapshot.usage;
     const billing = snapshot.billing;
     // Nothing usable (e.g. brand-new account): show unavailable, refreshable.
-    if (budget === undefined && usage === undefined) {
+    if (windows.length === 0 && budget === undefined && usage === undefined) {
         return (_jsxs("button", { type: "button", className: css.chip, onClick: refresh, title: t('ocgo.refresh'), "data-testid": "ocgo-chip-empty", children: [_jsx(OcgoLogo, {}), " ", t('ocgo.unavailable')] }));
     }
-    // Compact chip: budget % (+ cost when no budget) + freshness.
-    const budgetCls = budgetSeverity(budget);
+    // Compact chip. Windows when present; otherwise budget/usage metrics.
     const chipSegs = [];
-    if (budget !== undefined) {
-        chipSegs.push(_jsxs(Seg, { sep: sep, className: budgetCls, children: [t('ocgo.budget'), " ", budget.percent, "%"] }, "budget"));
+    if (windows.length > 0) {
+        for (const w of windows)
+            chipSegs.push(_jsx(WindowSegment, { window: w, sep: sep }, w.kind));
+    }
+    else if (budget !== undefined) {
+        chipSegs.push(_jsxs(Seg, { sep: sep, className: budgetSeverity(budget), children: [t('ocgo.budget'), " ", budget.percent, "%"] }, "budget"));
         chipSegs.push(_jsx(Seg, { sep: sep, children: formatUsd(usage?.costMicroCents) }, "cost"));
     }
     else {
@@ -349,8 +382,5 @@ export function OcgoDockEntry(props) {
     return (_jsxs("span", { className: css.wrap, ref: wrapRef, "data-testid": "ocgo-chip", children: [_jsxs("button", { type: "button", className: open ? `${css.chip} ${css.chipOpen}` : css.chip, onClick: () => { if (open)
                     closePanel();
                 else
-                    setOpen(true); }, title: open ? t('ocgo.collapse') : t('ocgo.expand'), children: [_jsx(OcgoLogo, {}), chipSegs, _jsx("span", { className: open ? `${css.chevron} ${css.chevronOpen}` : css.chevron, "aria-hidden": "true", children: _jsx("svg", { width: "12", height: "12", viewBox: "0 0 12 12", fill: "none", children: _jsx("path", { d: "M3 4.5L6 7.5L9 4.5", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }) }) })] }), open && (_jsx("span", { className: css.details, children: mode === 'set' ? (_jsxs("span", { className: css.setPanel, children: [_jsxs("label", { className: css.field, children: [_jsx("span", { className: css.fieldLabel, children: t('ocgo.workspaceID') }), _jsx("input", { className: css.fieldInput, value: wsDraft, placeholder: "wrk_\u2026", spellCheck: false, autoComplete: "off", onChange: (e) => { setWsDraft(e.target.value); }, onFocus: (e) => { if (e.target.value === maskedText(config?.workspaceID))
-                                        e.target.select(); } })] }), _jsxs("label", { className: css.field, children: [_jsx("span", { className: css.fieldLabel, children: t('ocgo.token') }), _jsx("input", { className: css.fieldInput, value: tokenDraft, placeholder: "st_\u2026", spellCheck: false, autoComplete: "off", onChange: (e) => { setTokenDraft(e.target.value); }, onFocus: (e) => { if (e.target.value === maskedText(config?.token))
-                                        e.target.select(); } })] }), _jsxs("label", { className: css.field, children: [_jsx("span", { className: css.fieldLabel, children: t('ocgo.apiKey') }), _jsx("input", { className: css.fieldInput, value: apiKeyDraft, placeholder: "\uFF08\u53EF\u9009\uFF09\u4EC5\u7D2F\u8BA1\u7528\u91CF", spellCheck: false, autoComplete: "off", onChange: (e) => { setApiKeyDraft(e.target.value); }, onFocus: (e) => { if (e.target.value === maskedText(config?.apiKey))
-                                        e.target.select(); } })] }), _jsxs("span", { className: css.foot, children: [_jsx("span", { className: css.setHint, children: t('ocgo.setHint') }), _jsx("button", { type: "button", className: css.refreshBtn, onClick: closePanel, children: t('ocgo.save') })] })] })) : (_jsxs(_Fragment, { children: [budget !== undefined && (_jsx(MetricRow, { label: budget.exceeded ? t('ocgo.exceeded') : t('ocgo.budget'), value: `${budget.percent}%`, sub: `${t('ocgo.spentOf', { spent: formatUsd(budget.spentMicroCents), limit: formatUsd(budget.limitMicroCents) })} · ${t('ocgo.resetsIn', { duration: formatDuration(budget.resetInSec) })}`, valueClass: budgetSeverity(budget) })), usage !== undefined && (_jsxs(_Fragment, { children: [_jsx(MetricRow, { label: t('ocgo.requests'), value: formatCount(usage.requests) }), _jsx(MetricRow, { label: t('ocgo.inputTokens'), value: formatCount(usage.inputTokens) }), _jsx(MetricRow, { label: t('ocgo.outputTokens'), value: formatCount(usage.outputTokens) }), _jsx(MetricRow, { label: t('ocgo.cacheTokens'), value: formatCount(usage.cacheTokens) }), _jsx(MetricRow, { label: t('ocgo.cost'), value: formatUsd(usage.costMicroCents) })] })), billing !== undefined && (_jsx(MetricRow, { label: t('ocgo.balance'), value: formatUsd(billing.balanceMicroCents) })), _jsxs("span", { className: css.foot, children: [_jsx("button", { type: "button", className: css.setBtn, onClick: openSet, children: t('ocgo.set') }), _jsxs("span", { className: css.footRight, children: [_jsx("button", { type: "button", className: css.refreshBtn, onClick: refresh, children: t('ocgo.refresh') }), snapshot.updatedAt !== undefined && (_jsx("span", { className: css.fetchedAt, children: t('ocgo.fetchedAt', { time: formatClock(snapshot.updatedAt) }) }))] })] })] })) }))] }));
+                    setOpen(true); }, title: open ? t('ocgo.collapse') : t('ocgo.expand'), children: [_jsx(OcgoLogo, {}), chipSegs, _jsx("span", { className: open ? `${css.chevron} ${css.chevronOpen}` : css.chevron, "aria-hidden": "true", children: _jsx("svg", { width: "12", height: "12", viewBox: "0 0 12 12", fill: "none", children: _jsx("path", { d: "M3 4.5L6 7.5L9 4.5", stroke: "currentColor", strokeWidth: "1.5", strokeLinecap: "round", strokeLinejoin: "round" }) }) })] }), open && (_jsx("span", { className: css.details, children: mode === 'set' ? setEditor() : (_jsxs(_Fragment, { children: [windows.map((w) => (_jsx(MetricRow, { label: w.status !== 'ok' ? t('ocgo.rateLimited') : t(WINDOW_TITLE_KEYS[w.kind]), value: `${w.percent}%`, sub: t('ocgo.resetsIn', { duration: formatDuration(w.resetInSec) }), valueClass: severityClass(w.percent, w.status !== 'ok') }, w.kind))), budget !== undefined && (_jsx(MetricRow, { label: budget.exceeded ? t('ocgo.exceeded') : t('ocgo.budget'), value: `${budget.percent}%`, sub: `${t('ocgo.spentOf', { spent: formatUsd(budget.spentMicroCents), limit: formatUsd(budget.limitMicroCents) })} · ${t('ocgo.resetsIn', { duration: formatDuration(budget.resetInSec) })}`, valueClass: budgetSeverity(budget) })), usage !== undefined && (_jsxs(_Fragment, { children: [_jsx(MetricRow, { label: t('ocgo.requests'), value: formatCount(usage.requests) }), _jsx(MetricRow, { label: t('ocgo.inputTokens'), value: formatCount(usage.inputTokens) }), _jsx(MetricRow, { label: t('ocgo.outputTokens'), value: formatCount(usage.outputTokens) }), _jsx(MetricRow, { label: t('ocgo.cacheTokens'), value: formatCount(usage.cacheTokens) }), _jsx(MetricRow, { label: t('ocgo.cost'), value: formatUsd(usage.costMicroCents) })] })), billing !== undefined && (_jsx(MetricRow, { label: t('ocgo.balance'), value: formatUsd(billing.balanceMicroCents) })), _jsxs("span", { className: css.foot, children: [_jsx("button", { type: "button", className: css.setBtn, onClick: openSet, children: t('ocgo.set') }), _jsxs("span", { className: css.footRight, children: [_jsx("button", { type: "button", className: css.refreshBtn, onClick: refresh, children: t('ocgo.refresh') }), snapshot.updatedAt !== undefined && (_jsx("span", { className: css.fetchedAt, children: t('ocgo.fetchedAt', { time: formatClock(snapshot.updatedAt) }) }))] })] })] })) }))] }));
 }

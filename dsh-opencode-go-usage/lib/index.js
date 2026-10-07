@@ -229,24 +229,73 @@ async function fetchBilling(cfg) {
 	};
 }
 /**
-* Fetch the full usage read: totals always; the budget window and balance
-* when a console session token is configured (the API key alone cannot read
-* them). Individual optional reads never fail the whole snapshot.
-* @throws {UsageError} when nothing usable is configured or totals fail.
+* Fetch the full usage read. Every available surface is fetched and merged:
+*
+*  1. API-key path (`zen/go/v1/usage`): the three plan windows
+*     (5h rolling / weekly / monthly). Required when an API key is set.
+*  2. Console path: cumulative totals (works with the API key or the session
+*     token); the monthly budget window and balance need the session token.
+*     Optional reads never fail the whole snapshot once the primary data
+*     (windows or totals) has been fetched.
+*
+* @throws {UsageError} when nothing usable is configured, or when a primary
+* fetch fails.
 */
 async function fetchUsage(cfg) {
-	const usage = await fetchTotals(cfg);
-	const extra = {};
+	const parts = {};
+	let haveAny = false;
+	if (cfg.apiKey) {
+		Object.assign(parts, await fetchWindows(cfg));
+		haveAny = true;
+	}
+	if (cfg.token || cfg.apiKey) try {
+		parts.usage = await fetchTotals(cfg);
+		haveAny = true;
+	} catch (error) {
+		if (!haveAny) throw error;
+	}
 	if (cfg.token) {
 		const [budget, billing] = await Promise.allSettled([fetchBudget(cfg), fetchBilling(cfg)]);
-		if (budget.status === "fulfilled") extra.budget = budget.value;
-		if (billing.status === "fulfilled") extra.billing = billing.value;
+		if (budget.status === "fulfilled") parts.budget = budget.value;
+		if (billing.status === "fulfilled") parts.billing = billing.value;
 	}
+	if (!haveAny) throw new UsageError("Missing token or API key", "noconfig");
 	return {
 		updatedAt: Date.now(),
-		usage,
-		...extra
+		...parts
 	};
+}
+/**
+* Fetch the three plan windows (5h rolling / weekly / monthly) from
+* `zen/go/v1/usage`. Authenticated by the service-account API key only
+* (the console session token is rejected by this endpoint).
+*/
+async function fetchWindows(cfg) {
+	if (!cfg.apiKey) throw new UsageError("Plan windows require the OpenCode Go API key", "noconfig");
+	const usage = (await safeFetchJson(`${cfg.baseUrl}/zen/go/v1/usage`, {
+		authorization: `Bearer ${cfg.apiKey}`,
+		accept: "application/json"
+	}, cfg.timeoutMs)).usage;
+	if (usage === void 0 || typeof usage !== "object" || usage === null) throw new UsageError("Unrecognized usage response", "parse");
+	const result = {};
+	for (const [field, kind] of [
+		["rolling", "rolling"],
+		["weekly", "weekly"],
+		["monthly", "monthly"]
+	]) {
+		const entry = usage[field];
+		if (typeof entry !== "object" || entry === null) continue;
+		const percentNum = typeof entry.percent === "number" ? entry.percent : Number.parseFloat(entry.percent ?? "");
+		if (!Number.isFinite(percentNum)) continue;
+		const resetsAt = entry.resetsAt ? Date.parse(entry.resetsAt) : NaN;
+		result[kind] = {
+			kind,
+			percent: Math.max(0, Math.min(100, Math.round(percentNum))),
+			resetInSec: Number.isFinite(resetsAt) ? Math.max(0, Math.floor((resetsAt - Date.now()) / 1e3)) : 0,
+			status: entry.status === "ok" ? "ok" : "rate-limited"
+		};
+	}
+	return result;
 }
 /** Coerce a possibly-absent response string into a string (JSON-safe). */
 function sv(value, fallback) {
@@ -367,7 +416,10 @@ var OcgoUsageService = class extends Service {
 function toView(data) {
 	return {
 		updatedAt: data.updatedAt,
-		usage: data.usage,
+		...data.rolling === void 0 ? {} : { rolling: data.rolling },
+		...data.weekly === void 0 ? {} : { weekly: data.weekly },
+		...data.monthly === void 0 ? {} : { monthly: data.monthly },
+		...data.usage === void 0 ? {} : { usage: data.usage },
 		...data.budget === void 0 ? {} : { budget: data.budget },
 		...data.billing === void 0 ? {} : { billing: data.billing }
 	};

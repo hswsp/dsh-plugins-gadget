@@ -3,11 +3,11 @@
 [English](README.en.md) | 中文
 
 > **本目录是适配 fork。** 源码来自上游 [`v587d/dsh-opencode-go-usage`](https://github.com/v587d/dsh-opencode-go-usage)（MIT），
-> 跟随 opencode 的两次变化做了适配（详见 [适配说明](#适配说明)）：
+> 跟随 dsh 与 opencode 的变化做了适配（详见 [适配说明](#适配说明)）：
 > ① dsh `0.1.2-rc.1` 移除了客户端 `connection.api`，provider 探测改读 durable `modelSelection` 投影；
-> ② opencode 下线了旧 SSR 用量页（`/workspace/<wrk>/go`）、控制台改为 JSON API，
-> 凭据也从旧 `auth` cookie 换成控制台会话 token（`st_…`）——本 fork 已改为直接调
-> `/console/api` JSON 接口（`Admin Bearer`），不需要 cookie 也不需要抓 HTML。
+> ② opencode 下线了旧 SSR 用量页（`/workspace/<wrk>/go`），本 fork 改走官方 JSON 接口：
+> `zen/go/v1/usage`（**API key，恢复 5h/每周/每月三窗口**）+ `/console/api`（累计用量/预算/余额），
+> 不需要 cookie、不需要抓 HTML。三个凭据字段（workspace ID / API key / console token）的获取方式见 [配置](#配置)。
 
 [![npm](https://img.shields.io/npm/v/dsh-ocgo-usage)](https://www.npmjs.com/package/dsh-ocgo-usage)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -30,12 +30,12 @@ OpenCode Go: 5h 0% (1h 23m) · wk 65% (2d 20h) · mo 83% (6d 21h) · upd 20:15
 - **数据新鲜度** —— `upd HH:MM` 显示最近一次成功抓取时间
 - **轻量轮询** —— 每 10s 轮询（切回标签页立即刷新）；host 端 300s 缓存（TTL 可配）+ 60s 失败冷却，不会频繁打扰 opencode.ai
 - **Provider 感知** —— 仅当会话当前模型走 `opencode-go` provider 时显示；每次轮询读取会话的 durable `modelSelection` 投影（客户端 `sessions` 服务，内存读、毫秒级；失败时回退 `session.projections` Remote），切到 DeepSeek 官方等其它 provider 后一个轮询周期内自动隐藏，切回自动恢复（与 pi-ocgo-usage 行为一致）
-- **点击展开** —— 详情面板显示每个窗口的重置倒计时，左下角 `Set` 可配置凭据，右侧 `refresh upd HH:MM` 手动刷新
-- **内置凭据编辑器** —— 无需碰终端：`Set` 面板直接修改 workspace id 与 cookie（输入框以 `••••` + 末尾 4 位显示，点击外部 / Esc / 保存确认写入）
+- **点击展开** —— 详情面板显示三窗口的重置倒计时与预算/请求/Token/费用/余额；左下角 `Set` 可配置凭据，右侧 `refresh upd HH:MM` 手动刷新
+- **内置凭据编辑器** —— 无需碰终端：`Set` 面板直接修改 workspace id / API key / console token 三个字段（输入框以 `••••` + 末尾 4 位显示，点击外部 / Esc / 保存确认写入）
 - **优雅降级** —— 配置缺失显示 `<err:noconfig>`，HTTP 失败显示 `<err:httpXXX>`；出错时点击 chip 直接进入 Set 面板
-- **Cookie 只在 host 侧** —— 浏览器只访问同源 `/api/ocgo-usage` JSON 端点，cookie 永不进入页面
+- **凭据只在 host 侧** —— 浏览器只访问同源 `/api/ocgo-usage` JSON 端点，API key 与 token 永不进入页面
 
-> **⚠️ 需要 OpenCode Go 会话 cookie。** 该 cookie 是完整用户会话（不是 API key），可访问你 OpenCode 账户的全部内容。请像对待密码一样对待它——见 [配置](#配置)。
+> **⚠️ API key / console token 等于你 OpenCode 账户的凭据，请像对待密码一样对待它们**——获取方法与安全提示见 [配置](#配置)。
 
 ## 环境要求
 
@@ -53,6 +53,13 @@ dsh plugin --profile web add github:v587d/dsh-opencode-go-usage
 ```
 
 因为 `lib/` 已提交到仓库，pnpm 直接安装构建好的包，不会要求构建脚本授权。
+
+> **本仓库是适配 fork**：功能与数据源见 [适配说明](#适配说明)，推荐从本地路径安装
+> （dsh 桌面版在插件市场选择本地目录，或 CLI）：
+>
+> ```sh
+> dsh plugin --profile web add /Users/wu000376/Github/dsh-plugins-gadget/dsh-opencode-go-usage
+> ```
 
 ### 从 npm 安装（发布后）
 
@@ -87,22 +94,55 @@ dsh --profile web --dump-config   # 应显示 "# == dsh-ocgo-usage" 层
 
 ## 配置
 
+本插件需要（可选）从 opencode.ai 取 3 个值；填写位置见下方的「方式一 / 二 / 三」。
+
+| 字段 | 是否必需 | 用途 | 获取方式 |
+| --- | --- | --- | --- |
+| **workspace ID** | 建议填 | 定位你监控的是哪个 workspace（累计用量 / 预算 / 余额接口的 `x-org-id`） | 见 [获取 workspace ID](#获取-workspace-id) |
+| **API key** | **必填** | **5h/每周/每月 三窗口** + 累计用量（`zen/go/v1/usage` 与 `usage/summary` 的 Bearer 凭据） | 见 [获取 API key](#获取-api-key) |
+| **Console token** | 可选 | 月度预算 + 余额（`budgets/org`、`billing/status`）；不填则没有这两行 | 见 [获取 console token](#获取-console-token) |
+
+> 只有 API key 也能用：chip 显示三窗口 + 累计用量；缺 workspace ID 时 console 相关字段不取（三窗口不受影响）。
+
+### 获取 workspace ID
+
+浏览器登录 [opencode.ai](https://opencode.ai) → 打开控制台任一页面（例如「服务账户 Service accounts」）→ 地址栏形如：
+
+```
+https://opencode.ai/console/wrk_01KW0ZYWDSDEPS16NSM5TT0Z32/service-accounts
+                        └───────── 这一段（wrk_ 开头）就是 workspace ID ─────────┘
+```
+
+### 获取 API key
+
+1. 浏览器登录 [opencode.ai](https://opencode.ai) → 控制台 → **Service accounts（服务账户）** 页面（生产地址如上）→ 新建一个 service account（或使用已有的）。
+2. 在该账户下 **创建 API key** → 立即复制保存（形如 `oc_sk_...`，**只显示这一次**，关掉页面就看不到了）。
+3. 把复制到的 key 填进本插件的 **API key** 字段（或 `OPENCODE_GO_API_KEY` 环境变量 / 配置文件 `apiKey`）。
+
+> 本机捷径：已登录过 opencode CLI 的话，`~/.local/share/opencode/auth.json` 中 `opencode-go` 条目的 `key` 就是可用的 API key（我们配给你的一份就来自这里）。
+
+### 获取 console token
+
+1. 浏览器登录 opencode.ai（保持登录态）→ 按 F12 → **Application**（应用程序）→ 左侧 **Storage → Cookies** → 选中 `https://opencode.ai`。
+2. 找到名为 **`__Host-console_session`** 的一行，双击 **Value** 列全选复制（形如 `st_...`）。
+3. 把这个值填进本插件的 **Console token** 字段（或 `OPENCODE_GO_CONSOLE_TOKEN` 环境变量 / 配置文件 `token`）。
+
+> `__Host-` 前缀的 cookie 是 HttpOnly，控制台 `document.cookie` 里看不到，必须从 Application 面板（或 Network 请求头中的 `Cookie:`）里拿。
+
 ### 方式一：界面内 Set 面板（最简单）
 
-点击 chip 展开详情 → 左下角 `Set` → 输入 workspace id 与控制台 token（`st_…`，可选填 API key；已设置的值以 `••••` + 末尾 4 位显示，聚焦即可输入新值）→ 点击外部 / Esc / 保存按钮确认，立即生效。
+点击 chip 展开详情 → 左下角 `Set` → 依次填入三个字段（**workspace id**、**API key**、**console token**；已设置的值以 `••••` + 末尾 4 位显示，聚焦即可输入新值）→ 点击外部 / Esc / 保存按钮确认，立即生效。
 
 ![Set editor](assets/set-cookie-wid.png)
 
 ### 方式二：环境变量（`OPENCODE_GO_*`）
 
 ```sh
-# 推荐：控制台会话 token（能看预算与余额）——来自浏览器 __Host-console_session
-export OPENCODE_GO_CONSOLE_TOKEN="st_..."
-# 或：service-account API key（仅累计用量）
-export OPENCODE_GO_API_KEY="..."
-# 或（旧版兼容）：cookie
-# export OPENCODE_GO_COOKIE="auth=Fe26.2*...; oc_locale=en"
 export OPENCODE_GO_WORKSPACE_ID="wrk_01XXXXXXXXXXXXXXXXXXXXXXXX"
+export OPENCODE_GO_API_KEY="oc_sk_..."          # 必填：三窗口 + 累计用量
+export OPENCODE_GO_CONSOLE_TOKEN="st_..."       # 可选：预算 + 余额
+# 旧版兼容（不再推荐）：
+# export OPENCODE_GO_COOKIE="auth=Fe26.2*...; oc_locale=en"
 ```
 
 ### 方式三：配置文件
@@ -111,8 +151,9 @@ export OPENCODE_GO_WORKSPACE_ID="wrk_01XXXXXXXXXXXXXXXXXXXXXXXX"
 
 ```jsonc
 {
-  "token": "st_...",
-  "workspaceID": "wrk_01XXXXXXXXXXXXXXXXXXXXXXXX"
+  "workspaceID": "wrk_01XXXXXXXXXXXXXXXXXXXXXXXX",
+  "apiKey": "oc_sk_...",
+  "token": "st_..."        // 可选
 }
 ```
 
@@ -138,7 +179,7 @@ chmod 600 $DSH_HOME/ocgo-usage.json
     enabled: false    # 总开关，默认 true
 ```
 
-> **Cookie 过期：** `auth` cookie 签发后有效期 1 年。过期（或被吊销）后页面 302 跳转到登录页，chip 显示 `<err:http302>` 而非过期数字。重新登录 opencode.ai 后，通过 Set 面板更新 cookie 即可。
+> **凭据过期：** API key / console token 失效后 chip 显示 `<err:http401>`。去 opencode.ai 重新获取替换（Set 面板或上面两种方式）即可；token 重新登录一次浏览器就会换新。
 
 ## 使用
 
@@ -148,24 +189,36 @@ chmod 600 $DSH_HOME/ocgo-usage.json
 
 ## 工作原理
 
-- **Host 半**（`src/index.ts`、`src/service.ts`、`src/api.ts`、`src/routes.ts`）—— 携带 cookie 抓取 `GET /workspace/<wrk>/go`，解析 SSR 渲染的 `data-slot="usage-item"` 块为每个窗口的 `{percent, resetInSec, status}`，缓存结果，通过同源 JSON 端点 `/api/ocgo-usage`（+ `/api/ocgo-usage/refresh`、`/api/ocgo-usage/config`）提供数据。
-- **浏览器半**（`src/client/`）—— 向 `conversation.input.right` slot（输入框工具行，紧邻模型选择器）注册 chip，每 10s 轮询 host 端点，按严重级别着色渲染三个窗口；可见性来自客户端 `sessions` 服务的 durable `modelSelection` 投影（见 [适配说明](#适配说明)）。
+- **Host 半**（`src/index.ts`、`src/service.ts`、`src/api.ts`、`src/routes.ts`）—— 携带凭据请求 opencode 官方接口：
+  - `GET https://opencode.ai/zen/go/v1/usage`（Bearer **API key**）→ 5h 滚动 / 每周 / 每月三窗口；
+  - `GET https://opencode.ai/console/api/usage/summary`（Bearer API key 或 token + `x-org-id`）= 累计请求/Token/费用；
+  - `GET https://opencode.ai/console/api/budgets/org` 与 `.../billing/status`（Bearer **token**）= 月度预算与余额；
+  结果缓存后通过同源 JSON 端点 `/api/ocgo-usage`（+ `/api/ocgo-usage/refresh`、`/api/ocgo-usage/config`）提供数据。
+- **浏览器半**（`src/client/`）—— 向 `conversation.input.right` slot（输入框工具行，紧邻模型选择器）注册 chip，每 10s 轮询 host 端点：有窗口数据时按严重级别着色渲染三窗口，同时展示预算/请求/Token/费用/余额；可见性来自客户端 `sessions` 服务的 durable `modelSelection` 投影（见 [适配说明](#适配说明)）。
 
-浏览器永远看不到 cookie；抓取与解析全部在 host 侧完成。
+浏览器永远看不到任何凭据；抓取与解析全部在 host 侧完成。
 
 ## 安全
 
-- `auth` cookie 是**完整的 OpenCode 用户会话**。任何人拿到它都能访问你账户内的所有 workspace、订阅与账单信息。
-- 插件**绝不**记录 cookie、不把它放进错误信息、不发送给浏览器。
+- **API key 与 console token 都是你 OpenCode 账户的凭据**（console token 相当于登录会话）。任何人拿到它们都能读取你账户下的用量/订阅/账单信息，请像对待密码一样保管。
+- 插件**绝不**记录凭据、不把它们放进错误信息、不发送给浏览器。
 - 配置编辑器只把新值写入 `$DSH_HOME/ocgo-usage.json`（chmod 600），浏览器始终只看到 `••••` + 末尾 4 位的掩码视图。
 
 ## 适配说明
 
+**v0.3.0（三窗口回归，API-key 直连）**：找回上游的三窗口显示。数据源
+`GET https://opencode.ai/zen/go/v1/usage`（`Authorization: Bearer <API key>`），返回
+`usage.rolling / .weekly / .monthly`（`{status, percent, resetsAt}`）。**只认 API key**
+（`OPENCODE_GO_API_KEY` / `ocgo-usage.json` 的 `apiKey`），不需要 cookie。**之前的显示字段全部
+保留**：快照同时抓取 console 的累计用量（key 或 token 均可）、月度预算与余额（需 token），
+面板里三窗口与这些指标一块显示；没有任何字段被删除。
+
 **v0.2.0（opencode 控制台改版后）**：opencode 下线了旧 SSR 用量页（`/workspace/<wrk>/go`，
 `data-slot="usage-item"` 已不存在，页面重定向到登录/OAuth），控制台改为同源 JSON API
 （`https://opencode.ai/console/api/…`），会话凭据也从旧的 `auth=Fe26.2*…` cookie 换成
-`__Host-console_session`（值形如 `st_…`）。旧三窗口接口（5h 滚动/每周/每月）现在只存在于
-`/api/internal`，普通用户会话也被拒（403）；本 fork 改为抓控制台公开 JSON 端点：
+`__Host-console_session`（值形如 `st_…`）。旧三窗口接口当时只存在于 `/api/internal`，普通用户
+会话也被拒（403）——后在 v0.3.0 由 `zen/go/v1/usage` 重新找到。v0.2.0 的控制台 JSON 端点
+（保留为 token 兜底）：
 
 | 端点 | 鉴权 | 内容 |
 | --- | --- | --- |
@@ -173,10 +226,9 @@ chmod 600 $DSH_HOME/ocgo-usage.json
 | `GET /console/api/budgets/org` | Bearer（仅 token） | 月度预算窗口：已用/额度/重置时间 |
 | `GET /console/api/billing/status` | Bearer（仅 token） | 预付费余额 |
 
-所以本 fork 的凭据模型是：**workspace id + 控制台会话 token（`st_…`）**（推荐，可看预算与余额），
-或 **workspace id + service-account API key**（仅累计用量）。两种都走 `Authorization: Bearer`，
-不需要浏览器 cookie。相应地 chip 显示变为：月度预算百分比 + 费用 + 请求数；展开面板显示
-预算窗口、输入/输出/缓存 tokens、费用与余额。
+所以本 fork 的凭据模型是：**API key（推荐，三窗口）** > **控制台 token（兜底，console 指标）** >
+旧 cookie（兼容）。chip 显示：有 key 时「5h 8% · wk 10% · mo 12% · upd HH:MM」；只有 token 时
+「预算 0% · $4.65 · upd HH:MM」。
 
 **v0.1.2（dsh 客户端改版后）**：dsh `0.1.2-rc.1` 重写了客户端连接层，`connection` 服务的
 `api` 字段被移除，Remote 迁到 `ctx.remote.<namespace>`。旧的
@@ -210,6 +262,11 @@ pnpm test          # vitest run（解析器 / 配置 / 服务）
 MIT —— 见 [LICENSE](./LICENSE)。
 
 ## Changelog
+
+### v0.3.0 · gadget 适配版（三窗口回归）
+
+- 🪟 **找回 5h 滚动 / 每周 / 每月 三窗口**：数据源改为 `https://opencode.ai/zen/go/v1/usage`（Bearer API key），恢复上游旧观感
+- 🔑 **只填 API key 即可**：`OPENCODE_GO_API_KEY` 或 `ocgo-usage.json` 的 `apiKey`；无 key 时自动回退 v0.2.0 的 console 路径（token）
 
 ### v0.2.0 · gadget 适配版（opencode 控制台改版）
 
